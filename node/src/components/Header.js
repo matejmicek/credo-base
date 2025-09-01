@@ -1,10 +1,12 @@
 import { useSession, signIn, signOut } from 'next-auth/react'
 import Link from 'next/link'
 import { useState } from 'react'
+import { useRouter } from 'next/router'
 
 export default function Header() {
   const { data: session, status } = useSession()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const router = useRouter()
 
   if (status === 'loading') return <div>Loading...</div>
 
@@ -31,67 +33,14 @@ export default function Header() {
           gap: '3rem',
           alignItems: 'flex-start'
         }}>
-          <div>
-            <div style={{ 
-              fontSize: '0.75rem', 
-              color: 'var(--text-light)', 
-              marginBottom: '0.5rem',
-              letterSpacing: '0.05em'
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <Link href="/deep-research" style={{
+              color: router.pathname === '/deep-research' ? 'var(--credo-orange)' : 'var(--text-primary)',
+              fontWeight: router.pathname === '/deep-research' ? '500' : 'normal',
+              fontSize: '0.9rem'
             }}>
-              01 Portfolio
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <Link href="/" style={{ 
-                color: 'var(--credo-orange)', 
-                fontWeight: '500',
-                fontSize: '0.9rem'
-              }}>
-                Dashboard
-              </Link>
-              <Link href="/tools/portfolio-dashboard" style={{ 
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}>
-                Portfolio
-              </Link>
-              <Link href="/tools/deal-pipeline" style={{ 
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}>
-                Deal Pipeline
-              </Link>
-            </div>
-          </div>
-
-          <div>
-            <div style={{ 
-              fontSize: '0.75rem', 
-              color: 'var(--text-light)', 
-              marginBottom: '0.5rem',
-              letterSpacing: '0.05em'
-            }}>
-              02 Operations
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <Link href="/tools/crm" style={{ 
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}>
-                CRM
-              </Link>
-              <Link href="/tools/fund-administration" style={{ 
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}>
-                Fund Admin
-              </Link>
-              <Link href="/tools/reporting" style={{ 
-                color: 'var(--text-primary)',
-                fontSize: '0.9rem'
-              }}>
-                Reporting
-              </Link>
-            </div>
+              Deep Research
+            </Link>
           </div>
 
           <div style={{ 

@@ -1,77 +1,62 @@
-import Link from "next/link";
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
 import Header from "../components/Header";
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Auto-redirect to deep research after a brief delay
+    const timer = setTimeout(() => {
+      router.push('/deep-research');
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [router]);
+
   return (
     <div>
       <Header />
-      <main style={{ minHeight: '80vh', position: 'relative' }}>
-        <div className="container" style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '4rem',
-          alignItems: 'center',
-          minHeight: '70vh'
-        }}>
-          <div style={{ paddingRight: '2rem' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '1rem',
-              marginBottom: '2rem'
-            }}>
-              <div style={{
-                width: '20px',
-                height: '1px',
-                background: 'var(--text-primary)'
-              }}></div>
-              <span style={{
-                fontSize: '0.9rem',
-                color: 'var(--text-secondary)',
-                letterSpacing: '0.05em'
-              }}>
-                Learn More
-              </span>
-            </div>
-          </div>
+      <main style={{
+        minHeight: '80vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div className="container" style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            border: '3px solid var(--border-light)',
+            borderTop: '3px solid var(--credo-orange)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 2rem'
+          }}></div>
 
-          <div>
-            <h1 style={{
-              fontSize: '3.5rem',
-              fontWeight: '600',
-              lineHeight: '1.1',
-              marginBottom: '2rem',
-              color: 'var(--text-primary)'
-            }}>
-              Internal Tool Portal for Credo Ventures
-            </h1>
-            <p style={{
-              fontSize: '1.2rem',
-              color: 'var(--text-secondary)',
-              lineHeight: '1.6'
-            }}>
-              Access portfolio management, deal pipeline, CRM, and fund administration tools in one centralized location.
-            </p>
-          </div>
-        </div>
+          <h1 style={{
+            fontSize: '2.5rem',
+            fontWeight: '600',
+            marginBottom: '1rem',
+            color: 'var(--text-primary)'
+          }}>
+            Credo Deep Research
+          </h1>
 
-        <div style={{
-          position: 'absolute',
-          bottom: '0',
-          left: '0',
-          right: '0',
-          height: '4px',
-          background: 'var(--credo-orange)'
-        }}></div>
+          <p style={{
+            fontSize: '1.1rem',
+            color: 'var(--text-secondary)',
+            marginBottom: '2rem'
+          }}>
+            Redirecting to Deep Research...
+          </p>
 
-        <div style={{
-          position: 'absolute',
-          bottom: '8px',
-          left: '2rem',
-          fontSize: '0.8rem',
-          color: 'var(--text-light)'
-        }}>
-          https://www.credoventures.com
+          <style jsx>{`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}</style>
         </div>
       </main>
     </div>

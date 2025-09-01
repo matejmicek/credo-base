@@ -21,37 +21,11 @@ model User {
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
-  // Relations
-  portfolioCompanies PortfolioCompany[]
-  deals             Deal[]
-  activities        Activity[]
-  
-  @@map("users")
-}
 
-// Portfolio Companies
-model PortfolioCompany {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?
-  website         String?
-  stage           String   // seed, series-a, series-b, etc.
-  sector          String?
-  country         String?
-  foundedYear     Int?
-  investmentDate  DateTime?
-  investmentAmount Float?
-  valuation       Float?
-  status          String   @default("active") // active, exited, closed
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
   // Relations
-  createdBy       User     @relation(fields: [createdById], references: [id])
-  createdById     String
-  
-  @@map("portfolio_companies")
+  deals             Deal[]
+
+  @@map("users")
 }
 
 // Deal Pipeline
@@ -59,36 +33,35 @@ model Deal {
   id              String   @id @default(cuid())
   companyName     String
   description     String?
-  stage           String   // sourced, initial-meeting, due-diligence, ic-review, term-sheet, closed, passed
-  sector          String?
-  requestedAmount Float?
-  valuation       Float?
-  leadInvestor    String?
-  priority        String   @default("medium") // low, medium, high
-  nextAction      String?
-  nextActionDate  DateTime?
+  uploadedText    String?  // Free text input from user
+  foundingTeam    Json?    // JSON array of founding team members from AI analysis
+  deleted         Boolean  @default(false) // Soft delete flag
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
-  // Relations
+  logoUrl         String?
+  files           DealFile[]
+
   assignedTo      User     @relation(fields: [assignedToId], references: [id])
   assignedToId    String
   
   @@map("deals")
 }
 
-// Activity log for tracking actions across tools
-model Activity {
-  id          String   @id @default(cuid())
-  type        String   // deal_created, company_updated, meeting_scheduled, etc.
-  description String
-  entityType  String?  // deal, portfolio_company, etc.
-  entityId    String?
-  createdAt   DateTime @default(now())
-  
+// Files uploaded for deals
+model DealFile {
+  id            String   @id @default(cuid())
+  filename      String
+  originalName  String
+  mimeType      String
+  size          Int
+  url           String // Changed from 'path' to 'url' for S3 link
+  openaiFileId  String?  // OpenAI file ID for uploaded files
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   // Relations
-  user        User     @relation(fields: [userId], references: [id])
-  userId      String
-  
-  @@map("activities")
+  deal          Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  dealId        String
+
+  @@map("deal_files")
 }
