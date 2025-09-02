@@ -35,6 +35,7 @@ model Deal {
   description     String?
   uploadedText    String?  // Free text input from user
   foundingTeam    Json?    // JSON array of founding team members from AI analysis
+  competitors     Json?    // JSON array/object of competitors extracted by AI
   deleted         Boolean  @default(false) // Soft delete flag
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

@@ -9,6 +9,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { IncomingForm } from 'formidable'
+import { analyzeCompetitorsTask } from '../../../trigger/analyzeCompetitors'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -253,6 +254,15 @@ export default async function handler(req, res) {
       where: { id: deal.id },
       include: { files: true },
     })
+
+    try {
+      await analyzeCompetitorsTask.trigger(
+        { dealId: deal.id },
+        { tags: [`deal:${deal.id}`] }
+      )
+    } catch (e) {
+      console.error('Failed to trigger competitors analysis task', e)
+    }
 
     return res.status(201).json({
       success: true,
