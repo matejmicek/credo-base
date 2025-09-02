@@ -1,4 +1,4 @@
-import { logger, task } from "@trigger.dev/sdk/v3";
+import { logger, task, metadata } from "@trigger.dev/sdk/v3";
 import OpenAI from "openai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
@@ -51,6 +51,8 @@ export const analyzeCompetitorsTask = task({
 
     logger.log("Fetching deal and files", { dealId: payload.dealId });
 
+    metadata.set("status", { label: "Fetching deal and files", progress: 10 });
+
     const deal = await prisma.deal.findUnique({
       where: { id: payload.dealId },
       include: { files: true },
@@ -67,6 +69,7 @@ export const analyzeCompetitorsTask = task({
     if (openaiFileIds.length === 0) {
       logger.log("No OpenAI file IDs found for this deal; saving empty competitors.");
       const empty = { competitors: [] };
+      metadata.set("status", { label: "No documents found, nothing to analyze", progress: 100 });
       await prisma.deal.update({
         where: { id: payload.dealId },
         data: { competitors: empty },
@@ -89,6 +92,7 @@ export const analyzeCompetitorsTask = task({
     logger.log("Requesting OpenAI structured competitors analysis", {
       numFiles: openaiFileIds.length,
     });
+    metadata.set("status", { label: "Analyzing documents with AI", progress: 40 });
 
     try {
       const response = await openai.responses.parse({
@@ -118,15 +122,18 @@ export const analyzeCompetitorsTask = task({
       logger.log("Saving competitors back to DB", {
         competitorsCount: competitorsResult.competitors?.length ?? 0,
       });
+      metadata.set("status", { label: "Saving results", progress: 80 });
 
       await prisma.deal.update({
         where: { id: payload.dealId },
         data: { competitors: competitorsResult },
       });
+      metadata.set("status", { label: "Completed", progress: 100 });
 
       return competitorsResult;
     } catch (error: any) {
       logger.error("OpenAI competitor analysis failed", { error: String(error) });
+      metadata.set("status", { label: "AI analysis failed", progress: 100, error: String(error) });
 
       const fallback = {
         competitors: [],

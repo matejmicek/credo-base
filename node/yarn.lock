@@ -1535,7 +1535,7 @@
     tinyglobby "^0.2.2"
     tsconfck "3.1.3"
 
-"@trigger.dev/core@4.0.2":
+"@trigger.dev/core@4.0.2", "@trigger.dev/core@^4.0.2":
   version "4.0.2"
   resolved "https://registry.yarnpkg.com/@trigger.dev/core/-/core-4.0.2.tgz#de8b3d1b4aaad2521b69ced4711614f518f3c92e"
   integrity sha512-hc/alfT7iVdJNZ5YSMbGR9FirLjURqdZ7tCBX4btKas0GDg6M5onwcQsJ3oom5TDp/Nrt+dHaviNMhFxhKCu3g==
@@ -1572,6 +1572,14 @@
     zod "3.25.76"
     zod-error "1.5.0"
     zod-validation-error "^1.5.0"
+
+"@trigger.dev/react-hooks@^4.0.2":
+  version "4.0.2"
+  resolved "https://registry.yarnpkg.com/@trigger.dev/react-hooks/-/react-hooks-4.0.2.tgz#c1d7c39b05296869a364430c191a29162f54c553"
+  integrity sha512-xIKRUFu+X+16HmrRvkdLpIR7Bl/z2VIc4mGqzvrbeo9/sc70K8t2yEn6S4e48p59mfUBZBk3kG7aUmvMI3MvIA==
+  dependencies:
+    "@trigger.dev/core" "^4.0.2"
+    swr "^2.2.5"
 
 "@trigger.dev/sdk@4.0.2":
   version "4.0.2"
@@ -2735,6 +2743,14 @@ supports-preserve-symlinks-flag@^1.0.0:
   resolved "https://registry.yarnpkg.com/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz#6eda4bd344a3c94aea376d4cc31bc77311039e09"
   integrity sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==
 
+swr@^2.2.5:
+  version "2.3.6"
+  resolved "https://registry.yarnpkg.com/swr/-/swr-2.3.6.tgz#5fee0ee8a0762a16871ee371075cb09422b64f50"
+  integrity sha512-wfHRmHWk/isGNMwlLGlZX5Gzz/uTgo0o2IRuTMcf4CPuPFJZlq0rDaKUx+ozB5nBOReNV1kiOyzMfj+MBMikLw==
+  dependencies:
+    dequal "^2.0.3"
+    use-sync-external-store "^1.4.0"
+
 tdigest@^0.1.1:
   version "0.1.2"
   resolved "https://registry.yarnpkg.com/tdigest/-/tdigest-0.1.2.tgz#96c64bac4ff10746b910b0e23b515794e12faced"
@@ -2812,6 +2828,11 @@ undici-types@~7.10.0:
   version "7.10.0"
   resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.10.0.tgz#4ac2e058ce56b462b056e629cc6a02393d3ff350"
   integrity sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag==
+
+use-sync-external-store@^1.4.0:
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.5.0.tgz#55122e2a3edd2a6c106174c27485e0fd59bcfca0"
+  integrity sha512-Rb46I4cGGVBmjamjphe8L/UnvJD+uPPtTkNvX5mZgqdbavhI4EbgIWJiIHXJ8bc/i9EQGPRh4DwEURJ552Do0A==
 
 util-deprecate@^1.0.1:
   version "1.0.2"

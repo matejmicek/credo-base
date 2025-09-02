@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Header from "../../components/Header"
+import { useRealtimeRunsWithTag } from '@trigger.dev/react-hooks'
 
 export default function DealDetail() {
   const { data: session, status } = useSession()
@@ -10,6 +11,7 @@ export default function DealDetail() {
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [publicToken, setPublicToken] = useState(null)
 
   useEffect(() => {
     const fetchDeal = async () => {
@@ -31,8 +33,31 @@ export default function DealDetail() {
 
     if (id && session) {
       fetchDeal()
+      fetch(`/api/trigger/public-token?dealId=${id}`)
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => setPublicToken(data.token))
+        .catch(err => console.error('Failed to fetch public token', err))
     }
   }, [id, session, router])
+
+  // Subscribe to runs for this deal tag
+  const { runs: competitorRuns } = useRealtimeRunsWithTag(`deal:${id}`, {
+    accessToken: publicToken || undefined,
+    enabled: Boolean(publicToken && id),
+  })
+
+  const latestRun = competitorRuns && competitorRuns.length > 0 ? competitorRuns[0] : null
+  const competitorStatus = latestRun?.metadata?.status || null
+
+  // When a run completes, refetch the deal to load saved competitors
+  useEffect(() => {
+    if (latestRun?.status === 'COMPLETED' && id && session) {
+      fetch(`/api/deals/${id}`)
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => setDeal(data))
+        .catch(() => {})
+    }
+  }, [latestRun?.status, id, session])
 
   // Handle redirection as a side-effect
   useEffect(() => {
@@ -211,6 +236,77 @@ export default function DealDetail() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '2rem' }}>
             {/* Main Content */}
             <div>
+              {/* Competitors */}
+              <div style={{
+                background: 'white',
+                border: '1px solid var(--border-light)',
+                borderRadius: '12px',
+                padding: '2rem',
+                marginBottom: '2rem'
+              }}>
+                <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Competitors</h2>
+                {deal.competitors && deal.competitors.competitors && deal.competitors.competitors.length > 0 ? (
+                  <div style={{ display: 'grid', gap: '0.75rem' }}>
+                    {deal.competitors.competitors.map((c, idx) => (
+                      <div key={idx} style={{
+                        padding: '1rem',
+                        background: 'var(--border-light)',
+                        borderRadius: '8px'
+                      }}>
+                        <div style={{ fontWeight: 600 }}>{c.name}</div>
+                        {c.description && <div style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{c.description}</div>}
+                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                          {c.website && (
+                            <a href={c.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.9rem' }}>Website</a>
+                          )}
+                          {c.market && (
+                            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{c.market}</span>
+                          )}
+                        </div>
+                        {(Array.isArray(c.strengths) && c.strengths.length > 0) && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Strengths</div>
+                            <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+                              {c.strengths.map((s, i) => (
+                                <li key={i} style={{ color: 'var(--text-secondary)' }}>{s}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {(Array.isArray(c.weaknesses) && c.weaknesses.length > 0) && (
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Weaknesses</div>
+                            <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+                              {c.weaknesses.map((w, i) => (
+                                <li key={i} style={{ color: 'var(--text-secondary)' }}>{w}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    {competitorStatus ? (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{
+                            width: '10px', height: '10px', borderRadius: '50%',
+                            background: (competitorStatus.progress || 0) < 100 ? '#F59E0B' : '#10B981'
+                          }} />
+                          <span style={{ color: 'var(--text-secondary)' }}>{competitorStatus.label || 'Processing...'}</span>
+                        </div>
+                        <div style={{ height: '8px', background: 'var(--border-light)', borderRadius: '999px', marginTop: '0.5rem' }}>
+                          <div style={{ height: '8px', background: 'var(--credo-orange)', width: `${Math.min(competitorStatus.progress || 0, 100)}%`, borderRadius: '999px' }} />
+                        </div>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)' }}>No competitors yet. Processing will begin shortly.</span>
+                    )}
+                  </div>
+                )}
+              </div>
               {/* Description */}
               {deal.description && (
                 <div style={{
