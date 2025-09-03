@@ -12,6 +12,7 @@
     "@trigger.dev/react-hooks": "^4.0.2",
     "@trigger.dev/sdk": "4.0.2",
     "formidable": "^3.5.4",
+    "lucide-react": "^0.411.0",
     "multer": "^2.0.2",
     "next": "^15.0.3",
     "next-auth": "^4.24.11",

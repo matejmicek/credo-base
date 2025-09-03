@@ -35,7 +35,6 @@ model Deal {
   description     String?
   uploadedText    String?  // Free text input from user
   foundingTeam    Json?    // JSON array of founding team members from AI analysis
-  competitors     Json?    // JSON array/object of competitors extracted by AI
   deleted         Boolean  @default(false) // Soft delete flag
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -45,6 +44,7 @@ model Deal {
   assignedTo      User     @relation(fields: [assignedToId], references: [id])
   assignedToId    String
   
+  competitors     Competitor[] // Added relation to Competitor
   @@map("deals")
 }
 
@@ -65,4 +65,20 @@ model DealFile {
   dealId        String
 
   @@map("deal_files")
+}
+
+model Competitor {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  website     String?
+  relevance   String?  // New field for relevance commentary
+
+  deal        Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  dealId      String
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("competitors")
 }

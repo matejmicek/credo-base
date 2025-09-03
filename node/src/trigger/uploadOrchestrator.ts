@@ -148,7 +148,6 @@ export const uploadOrchestratorTask = task({
         companyName: dealAnalysis.deal_name,
         description: dealAnalysis.deal_description,
         foundingTeam: dealAnalysis.deal_founding_team,
-        competitors: competitorAnalysis || { competitors: [] },
       },
     });
 

@@ -3,6 +3,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Header from "../../components/Header"
 import { useRealtimeRun } from '@trigger.dev/react-hooks'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 
 export default function DealDetail() {
   const { data: session, status } = useSession()
@@ -12,6 +13,11 @@ export default function DealDetail() {
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [publicToken, setPublicToken] = useState(null)
+  const [expandedCompetitor, setExpandedCompetitor] = useState(null);
+  
+  const toggleCompetitor = (id) => {
+    setExpandedCompetitor(expandedCompetitor === id ? null : id)
+  }
 
   useEffect(() => {
     const fetchDeal = async () => {
@@ -19,6 +25,14 @@ export default function DealDetail() {
         const response = await fetch(`/api/deals/${id}`)
         if (response.ok) {
           const dealData = await response.json()
+          // Sort competitors by score (descending)
+          if (dealData.competitors) {
+            dealData.competitors.sort((a, b) => {
+              const scoreA = a.score === "UNCERTAIN" ? -1 : parseInt(a.score, 10);
+              const scoreB = b.score === "UNCERTAIN" ? -1 : parseInt(b.score, 10);
+              return scoreB - scoreA;
+            });
+          }
           setDeal(dealData)
         } else {
           router.push('/deep-research')
@@ -322,42 +336,46 @@ export default function DealDetail() {
                 marginBottom: '2rem'
               }}>
                 <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Competitors</h2>
-                {deal.competitors && deal.competitors.competitors && deal.competitors.competitors.length > 0 ? (
+                {deal.competitors && deal.competitors.length > 0 ? (
                   <div style={{ display: 'grid', gap: '0.75rem' }}>
-                    {deal.competitors.competitors.map((c, idx) => (
-                      <div key={idx} style={{
+                    {deal.competitors.map((c) => (
+                      <div key={c.id} style={{
                         padding: '1rem',
                         background: 'var(--border-light)',
                         borderRadius: '8px'
                       }}>
-                        <div style={{ fontWeight: 600 }}>{c.name}</div>
-                        {c.description && <div style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{c.description}</div>}
-                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ fontWeight: 600 }}>{c.name}</div>
+                          {c.score && (
+                             <div style={{
+                              fontSize: '1.2rem',
+                              fontWeight: 'bold',
+                              color: c.score === "UNCERTAIN" ? 'var(--text-secondary)' : 'var(--credo-orange)',
+                            }}>
+                              {c.score}/10
+                            </div>
+                          )}
+                        </div>
+                        {c.shortJustification && <div style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{c.shortJustification}</div>}
+                        
+                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                           {c.website && (
                             <a href={c.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.9rem' }}>Website</a>
                           )}
-                          {c.market && (
-                            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{c.market}</span>
-                          )}
+                           {c.competitorCategory && <span style={{fontSize: '0.8rem', background: '#e0e0e0', padding: '2px 6px', borderRadius: '4px' }}>{c.competitorCategory}</span>}
                         </div>
-                        {(Array.isArray(c.strengths) && c.strengths.length > 0) && (
-                          <div style={{ marginTop: '0.5rem' }}>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Strengths</div>
-                            <ul style={{ margin: 0, paddingLeft: '1rem' }}>
-                              {c.strengths.map((s, i) => (
-                                <li key={i} style={{ color: 'var(--text-secondary)' }}>{s}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {(Array.isArray(c.weaknesses) && c.weaknesses.length > 0) && (
-                          <div style={{ marginTop: '0.5rem' }}>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Weaknesses</div>
-                            <ul style={{ margin: 0, paddingLeft: '1rem' }}>
-                              {c.weaknesses.map((w, i) => (
-                                <li key={i} style={{ color: 'var(--text-secondary)' }}>{w}</li>
-                              ))}
-                            </ul>
+                        
+                        {c.detailedJustification && (
+                          <div style={{ marginTop: '1rem' }}>
+                            <button onClick={() => toggleCompetitor(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--text-primary)'}}>
+                              {expandedCompetitor === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              Detailed Justification
+                            </button>
+                            {expandedCompetitor === c.id && (
+                              <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                                {c.detailedJustification}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>

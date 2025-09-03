@@ -22,6 +22,7 @@ export default async function handler(req, res) {
         },
         include: {
           files: true,
+          competitors: true, // Include competitors
           assignedTo: {
             select: {
               name: true,

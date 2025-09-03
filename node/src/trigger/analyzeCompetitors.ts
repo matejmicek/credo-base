@@ -1,8 +1,9 @@
-import { logger, task, metadata } from "@trigger.dev/sdk/v3";
+import { logger, task, metadata, batchTrigger } from "@trigger.dev/sdk/v3";
 import OpenAI from "openai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { prisma } from "../lib/prisma";
+import { evaluateCompetitorTask } from "./evaluateCompetitor";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -22,15 +23,10 @@ export const CompetitorsSchema = z.object({
           .string()
           .nullable()
           .describe("Official website if known (URL if available)"),
-        market: z.string().nullable().describe("Market/segment they operate in"),
-        strengths: z
-          .array(z.string())
+        relevance: z
+          .string()
           .nullable()
-          .describe("Key strengths or advantages"),
-        weaknesses: z
-          .array(z.string())
-          .nullable()
-          .describe("Key weaknesses or gaps"),
+          .describe("Commentary on why this company is a relevant competitor"),
       })
     )
     .describe("Array of competitor profiles"),
@@ -62,9 +58,27 @@ export const analyzeCompetitorsTask = task({
       throw new Error(`Deal not found: ${payload.dealId}`);
     }
 
+    // Add detailed logging to debug the issue
+    logger.log("Deal found with files", {
+      dealId: deal.id,
+      filesCount: deal.files?.length || 0,
+      files: deal.files?.map(f => ({
+        id: f.id,
+        originalName: f.originalName,
+        openaiFileId: f.openaiFileId,
+        hasOpenaiId: !!f.openaiFileId
+      }))
+    });
+
     const openaiFileIds = (deal.files || [])
       .map((f) => f.openaiFileId)
       .filter((id): id is string => Boolean(id));
+
+    logger.log("Extracted OpenAI file IDs", {
+      totalFiles: deal.files?.length || 0,
+      validOpenaiIds: openaiFileIds.length,
+      openaiFileIds
+    });
 
     if (openaiFileIds.length === 0) {
       logger.log("No OpenAI file IDs found for this deal; saving empty competitors.");
@@ -76,18 +90,20 @@ export const analyzeCompetitorsTask = task({
       });
       return empty;
     }
-    console.log("found openai file ids: ", openaiFileIds);
 
     const systemPrompt =
-      "You are a venture capital analyst. Read the attached documents and extract likely competitors to the company described. Prefer concrete named companies. If information is limited, use your best inference based on the documents.";
+      "You are a world-class venture capital analyst. Your mission is to conduct deep-dive research on the competitive landscape for the company described in the attached documents. Use file_search to read the docs and web_search to uncover direct, indirect, and emerging competitors. Synthesize both sources. Be thorough and meticulous in your research. For each competitor, provide a concise commentary on their relevance. Return only fields defined by analyze_deal.";
 
     const userPrompt =
-      "Identify direct competitors and near-adjacent competitors. Return a concise list with name, brief description, optional website, market, and notable strengths/weaknesses where possible.";
+      "Analyze the attached investor materials. Use web_search to identify direct and adjacent competitors (incl. new or less visible players). For each competitor, return their name, a concise description, their website, and a commentary on why they are a relevant competitor. Prefer EU/CEE if relevant.";
 
-    const attachments = openaiFileIds.map((fileId) => ({
-      type: "input_file" as const,
-      file_id: fileId,
-    }));
+      const attachments = (openaiFileIds || [])
+      .filter(Boolean)
+      .map((fileId) => ({
+        type: "input_file" as const,
+        file_id: fileId,
+      }));
+
 
     logger.log("Requesting OpenAI structured competitors analysis", {
       numFiles: openaiFileIds.length,
@@ -96,7 +112,17 @@ export const analyzeCompetitorsTask = task({
 
     try {
       const response = await openai.responses.parse({
-        model: "gpt-4o-2024-08-06",
+        // === GPT-5 Thinking ===
+        model: "gpt-5",
+        reasoning: { effort: "low" }, // “hard thinking”
+
+        // Hosted tools: web + file search
+        tools: [
+          { type: "web_search" }
+        ],
+
+
+        // Your prompts + (optional) input_file previews
         input: [
           { role: "system", content: systemPrompt },
           {
@@ -110,13 +136,18 @@ export const analyzeCompetitorsTask = task({
             ],
           },
         ],
-        text: {
-          format: zodTextFormat(CompetitorsSchema, "competitor_analysis"),
-        },
+
+        // Let the model decide when to use tools
+        tool_choice: "auto",
+
+        // Structured output (Zod)
+        text: { format: zodTextFormat(CompetitorsSchema, "competitor_analysis") },
       });
 
-      const parsed = response.output_parsed;
 
+      console.log("Response", response);
+
+      const parsed = response.output_parsed;
       const competitorsResult = parsed ?? { competitors: [] };
 
       logger.log("Saving competitors back to DB", {
@@ -124,12 +155,36 @@ export const analyzeCompetitorsTask = task({
       });
       metadata.set("status", { label: "Saving results", progress: 80 });
 
-      await prisma.deal.update({
-        where: { id: payload.dealId },
-        data: { competitors: competitorsResult },
-      });
-      metadata.set("status", { label: "Completed", progress: 100 });
+      if (competitorsResult.competitors && competitorsResult.competitors.length > 0) {
+        // We need to create competitors one by one to get their IDs
+        const createdCompetitors = [];
+        for (const c of competitorsResult.competitors) {
+          const created = await prisma.competitor.create({
+            data: {
+              dealId: payload.dealId,
+              name: c.name,
+              description: c.description,
+              website: c.website,
+              relevance: c.relevance,
+            },
+          });
+          createdCompetitors.push(created);
+        }
+        
+        // Now, trigger the evaluation task for each competitor
+        logger.log("Triggering competitor evaluation tasks", { count: createdCompetitors.length });
+        
+        await batchTrigger({
+          items: createdCompetitors.map(c => ({
+            payload: {
+              competitorId: c.id
+            }
+          })),
+          task: evaluateCompetitorTask
+        });
+      }
 
+      metadata.set("status", { label: "Completed", progress: 100 });
       return competitorsResult;
     } catch (error: any) {
       logger.error("OpenAI competitor analysis failed", { error: String(error) });
@@ -139,14 +194,9 @@ export const analyzeCompetitorsTask = task({
         competitors: [],
       } as z.infer<typeof CompetitorsSchema>;
 
-      await prisma.deal.update({
-        where: { id: payload.dealId },
-        data: { competitors: fallback },
-      });
-
+      // No need to update the deal here anymore as competitors are in a separate table
+      
       return fallback;
     }
   },
 });
-
-
