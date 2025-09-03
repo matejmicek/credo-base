@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Header from "../../components/Header"
-import { useRealtimeRunsWithTag } from '@trigger.dev/react-hooks'
+import { useRealtimeRunsWithTag, useRealtimeRun } from '@trigger.dev/react-hooks'
 
 export default function DealDetail() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const { id } = router.query
+  const { id, taskId } = router.query // Get taskId from URL params
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -40,24 +40,31 @@ export default function DealDetail() {
     }
   }, [id, session, router])
 
-  // Subscribe to runs for this deal tag
+  // Subscribe to runs for this deal tag (competitors)
   const { runs: competitorRuns } = useRealtimeRunsWithTag(`deal:${id}`, {
     accessToken: publicToken || undefined,
     enabled: Boolean(publicToken && id),
   })
 
-  const latestRun = competitorRuns && competitorRuns.length > 0 ? competitorRuns[0] : null
-  const competitorStatus = latestRun?.metadata?.status || null
+  // Subscribe to the main orchestrator run if we have a taskId
+  const { run: orchestratorRun } = useRealtimeRun(taskId, {
+    accessToken: publicToken || undefined,
+    enabled: Boolean(publicToken && taskId),
+  })
 
-  // When a run completes, refetch the deal to load saved competitors
+  const latestCompetitorRun = competitorRuns && competitorRuns.length > 0 ? competitorRuns[0] : null
+  const competitorStatus = latestCompetitorRun?.metadata?.status || null
+  const orchestratorStatus = orchestratorRun?.metadata?.status || null
+
+  // When a run completes, refetch the deal to load saved data
   useEffect(() => {
-    if (latestRun?.status === 'COMPLETED' && id && session) {
+    if ((latestCompetitorRun?.status === 'COMPLETED' || orchestratorRun?.status === 'COMPLETED') && id && session) {
       fetch(`/api/deals/${id}`)
         .then(res => res.ok ? res.json() : Promise.reject())
         .then(data => setDeal(data))
         .catch(() => {})
     }
-  }, [latestRun?.status, id, session])
+  }, [latestCompetitorRun?.status, orchestratorRun?.status, id, session])
 
   // Handle redirection as a side-effect
   useEffect(() => {
@@ -114,6 +121,48 @@ export default function DealDetail() {
       day: 'numeric'
     })
   }
+
+  // Progress widget component
+  const ProgressWidget = ({ status, fallbackText }) => {
+    if (!status) {
+      return <span style={{ color: 'var(--text-secondary)' }}>{fallbackText}</span>
+    }
+    
+    const isCompleted = status.progress >= 100
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <div style={{
+            width: '10px', height: '10px', borderRadius: '50%',
+            background: isCompleted ? '#10B981' : '#F59E0B'
+          }} />
+          <span style={{ color: 'var(--text-secondary)' }}>{status.label || 'Processing...'}</span>
+        </div>
+        <div style={{ height: '8px', background: 'var(--border-light)', borderRadius: '999px' }}>
+          <div style={{ 
+            height: '8px', 
+            background: 'var(--credo-orange)', 
+            width: `${Math.min(status.progress || 0, 100)}%`, 
+            borderRadius: '999px',
+            transition: 'width 0.3s ease' 
+          }} />
+        </div>
+      </div>
+    )
+  }
+
+  // Check if deal data is still being processed
+  const isProcessing = (text) => {
+    return text === 'Processing...' || text === 'Analyzing...' || 
+           text?.includes('Processing') || text?.includes('Analyzing')
+  }
+
+  // Check if orchestrator is still running (main processing)
+  const isOrchestratorRunning = orchestratorRun && 
+    (orchestratorRun.status === 'EXECUTING' || orchestratorRun.status === 'QUEUED' || orchestratorRun.status === 'PENDING')
+
+  // Check if we should show progress instead of data
+  const shouldShowProgress = isOrchestratorRunning || (deal && isProcessing(deal.companyName))
 
   if (loading) {
     return (
@@ -219,7 +268,17 @@ export default function DealDetail() {
             }}>
               <div>
                 <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>
-                  {deal.companyName}
+                  {shouldShowProgress ? (
+                    <div>
+                      <div style={{ marginBottom: '1rem' }}>Company Information</div>
+                      <ProgressWidget 
+                        status={orchestratorStatus} 
+                        fallbackText="Processing company information..." 
+                      />
+                    </div>
+                  ) : (
+                    deal.companyName
+                  )}
                 </h1>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}></div>
               </div>
@@ -308,7 +367,7 @@ export default function DealDetail() {
                 )}
               </div>
               {/* Description */}
-              {deal.description && (
+              {shouldShowProgress ? (
                 <div style={{
                   background: 'white',
                   border: '1px solid var(--border-light)',
@@ -317,10 +376,26 @@ export default function DealDetail() {
                   marginBottom: '2rem'
                 }}>
                   <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Description</h2>
-                  <p style={{ lineHeight: '1.6', color: 'var(--text-secondary)' }}>
-                    {deal.description}
-                  </p>
+                  <ProgressWidget 
+                    status={orchestratorStatus} 
+                    fallbackText="Extracting company description from documents..." 
+                  />
                 </div>
+              ) : (
+                deal.description && !isProcessing(deal.description) && (
+                  <div style={{
+                    background: 'white',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '12px',
+                    padding: '2rem',
+                    marginBottom: '2rem'
+                  }}>
+                    <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Description</h2>
+                    <p style={{ lineHeight: '1.6', color: 'var(--text-secondary)' }}>
+                      {deal.description}
+                    </p>
+                  </div>
+                )
               )}
 
               {/* Uploaded Text */}
@@ -340,7 +415,7 @@ export default function DealDetail() {
               )}
 
               {/* Founding Team */}
-              {deal.foundingTeam && Array.isArray(deal.foundingTeam) && deal.foundingTeam.length > 0 && (
+              {shouldShowProgress ? (
                 <div style={{
                   background: 'white',
                   border: '1px solid var(--border-light)',
@@ -348,26 +423,42 @@ export default function DealDetail() {
                   padding: '2rem'
                 }}>
                   <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Founding Team</h2>
-                  <div style={{ display: 'grid', gap: '1rem' }}>
-                    {deal.foundingTeam.map((member, index) => (
-                      <div key={index} style={{
-                        padding: '1rem',
-                        background: 'var(--border-light)',
-                        borderRadius: '8px'
-                      }}>
-                        <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
-                          {member.name || 'Unknown'}
-                        </div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                          {member.role || 'Unknown Role'}
-                        </div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                          {member.description || 'No description available'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <ProgressWidget 
+                    status={orchestratorStatus} 
+                    fallbackText="Extracting founding team information from documents..." 
+                  />
                 </div>
+              ) : (
+                deal.foundingTeam && Array.isArray(deal.foundingTeam) && deal.foundingTeam.length > 0 && 
+                !deal.foundingTeam.some(member => isProcessing(member.name)) && (
+                  <div style={{
+                    background: 'white',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '12px',
+                    padding: '2rem'
+                  }}>
+                    <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Founding Team</h2>
+                    <div style={{ display: 'grid', gap: '1rem' }}>
+                      {deal.foundingTeam.map((member, index) => (
+                        <div key={index} style={{
+                          padding: '1rem',
+                          background: 'var(--border-light)',
+                          borderRadius: '8px'
+                        }}>
+                          <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                            {member.name || 'Unknown'}
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                            {member.role || 'Unknown Role'}
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                            {member.description || 'No description available'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
               )}
             </div>
 

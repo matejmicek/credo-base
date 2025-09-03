@@ -2,18 +2,11 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '../auth/[...nextauth]'
 import { prisma } from '../../../lib/prisma'
-import OpenAI from 'openai'
-import { z } from 'zod'
-import { zodTextFormat } from 'openai/helpers/zod'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { IncomingForm } from 'formidable'
-import { analyzeCompetitorsTask } from '../../../trigger/analyzeCompetitors'
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+import { uploadOrchestratorTask } from '../../../trigger/uploadOrchestrator'
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
@@ -23,30 +16,7 @@ const s3Client = new S3Client({
   },
 })
 
-// Structured output Zod schema for deal analysis
-const DealAnalysisSchema = z.object({
-  deal_name: z.string().describe("The company or deal name, or 'Unknown' if not found"),
-  deal_description: z
-    .string()
-    .describe(
-      "A comprehensive description of the company, business model, and value proposition, or 'Unknown' if not found"
-    ),
-  deal_founding_team: z
-    .array(
-      z.object({
-        name: z
-          .string()
-          .describe("Founder or team member name, or 'Unknown' if not found"),
-        role: z.string().describe("Their role/title, or 'Unknown' if not found"),
-        description: z
-          .string()
-          .describe(
-            "Brief description of their background and expertise, or 'Unknown' if not found"
-          ),
-      })
-    )
-    .describe('Array of founding team members'),
-})
+
 
 export const config = {
   api: {
@@ -85,94 +55,12 @@ async function uploadToS3(file) {
     ContentType: file.mimetype,
   })
 
-
   await s3Client.send(command)
 
   return `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`
 }
 
-async function uploadToOpenAI(file) {
-  console.log(`Uploading file ${file.filepath} to OpenAI`)
-  try {
-    const openaiFile = await openai.files.create({
-      file: fs.createReadStream(file.filepath),
-      purpose: 'assistants',
-    })
-    console.log(
-      `Uploaded file ${file.originalFilename} with OpenAI ID: ${openaiFile.id}`,
-    )
-    return openaiFile.id
-  } catch (fileError) {
-    console.error(`Error uploading file ${file.originalFilename} to OpenAI:`, fileError)
-    return null
-  }
-}
 
-async function analyzeDealDocuments(openaiFileIds, freeText) {
-  try {
-    const systemPrompt =
-      "You are a venture capital analyst. Read the attached documents and extract or infer details about the company, deal, and founding team. If information is not available, use 'Unknown' for that field."
-
-    const userPrompt = freeText
-      ? `Please analyze the uploaded documents for a potential investment deal.\n\nAdditional context provided: ${freeText}`
-      : 'Please analyze the uploaded documents for a potential investment deal.'
-    const attachments = (openaiFileIds || []).map((fileId) => ({
-      type: "input_file",
-      file_id: fileId
-    }))
-
-    const response = await openai.responses.parse({
-      model: 'gpt-4o-2024-08-06',
-      input: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            ...attachments,
-            {
-              type: "input_text", 
-              text: userPrompt
-            }
-          ]
-        }
-      ],
-      text: {
-        format: zodTextFormat(DealAnalysisSchema, 'analyze_deal'),
-      },
-    })
-
-    const analysisResult = response.output_parsed
-    if (analysisResult) {
-      console.log('Analysis result:', analysisResult)
-      return analysisResult
-    }
-
-    return {
-      deal_name: 'AI Analysis Failed',
-      deal_description: 'Unable to analyze documents at this time',
-      deal_founding_team: [
-        {
-          name: 'Unknown',
-          role: 'Unknown',
-          description: 'Unknown',
-        },
-      ],
-    }
-  } catch (error) {
-    console.error('OpenAI analysis error:', error)
-    return {
-      deal_name: 'AI Analysis Failed',
-      deal_description: 'Unable to analyze documents at this time',
-      deal_founding_team: [
-        {
-          name: 'Unknown',
-          role: 'Unknown',
-          description: 'Unknown',
-        },
-      ],
-    }
-  }
-}
 
 export default async function handler(req, res) {
   const session = await getServerSession(req, res, authOptions)
@@ -200,73 +88,78 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No files or text provided.' })
     }
 
-    const fileProcessingPromises = uploadedFiles.map(async (file) => {
+    // Validate PDF files and upload to S3
+    const s3UploadPromises = uploadedFiles.map(async (file) => {
       // Enforce PDF-only uploads server-side
       const isPdf = file.mimetype === 'application/pdf' || (file.originalFilename || '').toLowerCase().endsWith('.pdf')
       if (!isPdf) {
         throw new Error(`Only PDF files are allowed. Rejected: ${file.originalFilename}`)
       }
+      
       const s3Url = await uploadToS3(file)
-      const openaiFileId = await uploadToOpenAI(file)
       return {
         s3Url,
-        openaiFileId,
-        originalFile: file,
+        originalFilename: file.originalFilename,
+        mimetype: file.mimetype,
+        size: file.size,
       }
     })
 
-    const processedFiles = await Promise.all(fileProcessingPromises)
-    const openaiFileIds = processedFiles.map(f => f.openaiFileId).filter(Boolean)
+    const s3Results = await Promise.all(s3UploadPromises)
 
-    const analysisResult = await analyzeDealDocuments(openaiFileIds, freeText)
-
-    const aiGeneratedData = {
-      companyName: analysisResult.deal_name,
-      description: analysisResult.deal_description,
-      foundingTeam: analysisResult.deal_founding_team,
-    }
-
+    // Create deal immediately with placeholder data
     const deal = await prisma.deal.create({
       data: {
-        ...aiGeneratedData,
+        companyName: 'Processing...',
+        description: 'Analyzing documents to extract company information...',
+        foundingTeam: [
+          {
+            name: 'Analyzing...',
+            role: 'Processing documents',
+            description: 'Extracting team information from uploaded files...',
+          },
+        ],
         assignedToId: session.user.id,
         deleted: false,
       },
     })
 
-    const fileRecords = processedFiles.map(file => ({
-      filename: file.originalFile.newFilename,
-      originalName: file.originalFile.originalFilename,
-      mimeType: file.originalFile.mimetype,
-      size: file.originalFile.size,
-      url: file.s3Url,
-      openaiFileId: file.openaiFileId,
-      dealId: deal.id,
-    }))
+    // Create file records immediately
+    if (s3Results.length > 0) {
+      const fileRecords = s3Results.map(file => ({
+        filename: file.originalFilename,
+        originalName: file.originalFilename,
+        mimeType: file.mimetype,
+        size: file.size,
+        url: file.s3Url,
+        openaiFileId: null, // Will be updated by the task
+        dealId: deal.id,
+      }))
 
-    if (fileRecords.length > 0) {
       await prisma.dealFile.createMany({
         data: fileRecords,
       })
     }
 
+    // Trigger the upload orchestrator task with the deal ID
+    const orchestratorResult = await uploadOrchestratorTask.trigger({
+      dealId: deal.id, // Pass the existing deal ID
+      userId: session.user.id,
+      s3Files: s3Results,
+      freeText: freeText || undefined,
+    })
+
+    // Get the deal with files for the response
     const dealWithFiles = await prisma.deal.findUnique({
       where: { id: deal.id },
       include: { files: true },
     })
 
-    try {
-      await analyzeCompetitorsTask.trigger(
-        { dealId: deal.id },
-        { tags: [`deal:${deal.id}`] }
-      )
-    } catch (e) {
-      console.error('Failed to trigger competitors analysis task', e)
-    }
-
     return res.status(201).json({
       success: true,
       deal: dealWithFiles,
+      taskId: orchestratorResult.id,
+      message: 'Deal created. Processing in the background.',
     })
   } catch (error) {
     console.error('Upload API error:', error)

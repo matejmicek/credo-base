@@ -23,6 +23,9 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@trigger.dev/build": "4.0.2"
+    "@trigger.dev/build": "4.0.2",
+    "@types/node": "^24.3.0",
+    "eslint-config-next": "15.5.2",
+    "typescript": "^5.9.2"
   }
 }

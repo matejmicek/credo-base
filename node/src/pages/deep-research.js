@@ -179,13 +179,19 @@ export default function DeepResearch() {
       setProcessingStep('Complete!')
       setUploadProgress(100)
 
-      // Add the new deal to the list
-      const newDeal = {
-        ...result.deal,
-        createdAt: new Date(result.deal.createdAt)
-      }
+      // Add the new deal to the list and redirect to deal page
+      if (result.deal) {
+        const newDeal = {
+          ...result.deal,
+          createdAt: new Date(result.deal.createdAt)
+        }
 
-      setDeals(prev => [newDeal, ...prev])
+        setDeals(prev => [newDeal, ...prev])
+        
+        // Redirect to the deal page immediately
+        window.location.href = `/deep-research/${newDeal.id}?taskId=${result.taskId}`
+        return // Exit early since we're redirecting
+      }
 
       // Reset form after a short delay
       setTimeout(() => {
