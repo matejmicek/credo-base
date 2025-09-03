@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Header from "../../components/Header"
-import { useRealtimeRunsWithTag, useRealtimeRun } from '@trigger.dev/react-hooks'
+import { useRealtimeRun } from '@trigger.dev/react-hooks'
 
 export default function DealDetail() {
   const { data: session, status } = useSession()
@@ -33,18 +33,19 @@ export default function DealDetail() {
 
     if (id && session) {
       fetchDeal()
-      fetch(`/api/trigger/public-token?dealId=${id}`)
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then(data => setPublicToken(data.token))
-        .catch(err => console.error('Failed to fetch public token', err))
-    }
-  }, [id, session, router])
+      // If we have a taskId, fetch a token scoped to that run.
+      // The dealId is still needed for authorization checks in the API.
+      const tokenUrl = taskId
+        ? `/api/trigger/public-token?runId=${taskId}&dealId=${id}`
+        // Fallback for any case where taskId is not in the URL
+        : `/api/trigger/public-token?dealId=${id}`
 
-  // Subscribe to runs for this deal tag (competitors)
-  const { runs: competitorRuns } = useRealtimeRunsWithTag(`deal:${id}`, {
-    accessToken: publicToken || undefined,
-    enabled: Boolean(publicToken && id),
-  })
+      fetch(tokenUrl)
+        .then((res) => (res.ok ? res.json() : Promise.reject()))
+        .then((data) => setPublicToken(data.token))
+        .catch((err) => console.error('Failed to fetch public token', err))
+    }
+  }, [id, taskId, session, router])
 
   // Subscribe to the main orchestrator run if we have a taskId
   const { run: orchestratorRun } = useRealtimeRun(taskId, {
@@ -52,19 +53,34 @@ export default function DealDetail() {
     enabled: Boolean(publicToken && taskId),
   })
 
-  const latestCompetitorRun = competitorRuns && competitorRuns.length > 0 ? competitorRuns[0] : null
-  const competitorStatus = latestCompetitorRun?.metadata?.status || null
   const orchestratorStatus = orchestratorRun?.metadata?.status || null
 
-  // When a run completes, refetch the deal to load saved data
+  // Check if we should show progress bar - either orchestrator is running or we have placeholder content
+  const shouldShowProgressBar = (orchestratorRun && orchestratorRun.status !== 'COMPLETED') || 
+    (deal && (deal.companyName === 'Processing...' || deal.companyName?.includes('Processing')))
+
+  // Debug logging
+  console.log('Debug info:', {
+    taskId,
+    orchestratorRun: orchestratorRun ? {
+      id: orchestratorRun.id,
+      status: orchestratorRun.status,
+      metadata: orchestratorRun.metadata
+    } : null,
+    dealCompanyName: deal?.companyName,
+    shouldShowProgressBar,
+    publicToken: !!publicToken
+  })
+
+  // When orchestrator run completes, refetch the deal to load saved data
   useEffect(() => {
-    if ((latestCompetitorRun?.status === 'COMPLETED' || orchestratorRun?.status === 'COMPLETED') && id && session) {
+    if (orchestratorRun?.status === 'COMPLETED' && id && session) {
       fetch(`/api/deals/${id}`)
         .then(res => res.ok ? res.json() : Promise.reject())
         .then(data => setDeal(data))
         .catch(() => {})
     }
-  }, [latestCompetitorRun?.status, orchestratorRun?.status, id, session])
+  }, [orchestratorRun?.status, id, session])
 
   // Handle redirection as a side-effect
   useEffect(() => {
@@ -122,47 +138,7 @@ export default function DealDetail() {
     })
   }
 
-  // Progress widget component
-  const ProgressWidget = ({ status, fallbackText }) => {
-    if (!status) {
-      return <span style={{ color: 'var(--text-secondary)' }}>{fallbackText}</span>
-    }
-    
-    const isCompleted = status.progress >= 100
-    return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <div style={{
-            width: '10px', height: '10px', borderRadius: '50%',
-            background: isCompleted ? '#10B981' : '#F59E0B'
-          }} />
-          <span style={{ color: 'var(--text-secondary)' }}>{status.label || 'Processing...'}</span>
-        </div>
-        <div style={{ height: '8px', background: 'var(--border-light)', borderRadius: '999px' }}>
-          <div style={{ 
-            height: '8px', 
-            background: 'var(--credo-orange)', 
-            width: `${Math.min(status.progress || 0, 100)}%`, 
-            borderRadius: '999px',
-            transition: 'width 0.3s ease' 
-          }} />
-        </div>
-      </div>
-    )
-  }
 
-  // Check if deal data is still being processed
-  const isProcessing = (text) => {
-    return text === 'Processing...' || text === 'Analyzing...' || 
-           text?.includes('Processing') || text?.includes('Analyzing')
-  }
-
-  // Check if orchestrator is still running (main processing)
-  const isOrchestratorRunning = orchestratorRun && 
-    (orchestratorRun.status === 'EXECUTING' || orchestratorRun.status === 'QUEUED' || orchestratorRun.status === 'PENDING')
-
-  // Check if we should show progress instead of data
-  const shouldShowProgress = isOrchestratorRunning || (deal && isProcessing(deal.companyName))
 
   if (loading) {
     return (
@@ -211,6 +187,58 @@ export default function DealDetail() {
   return (
     <div>
       <Header />
+      
+      {/* Global Progress Bar */}
+      {shouldShowProgressBar && (
+        <div style={{
+          background: '#FEF3C7',
+          borderBottom: '1px solid #F59E0B',
+          padding: '1rem 0'
+        }}>
+          <div className="container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{
+                width: '12px', 
+                height: '12px', 
+                borderRadius: '50%',
+                background: '#F59E0B',
+                animation: 'pulse 2s infinite'
+              }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ 
+                  fontWeight: '600', 
+                  marginBottom: '0.5rem',
+                  color: '#92400E' 
+                }}>
+                  {orchestratorStatus?.label || 'Processing deal information...'}
+                </div>
+                <div style={{ 
+                  height: '6px', 
+                  background: '#FDE68A', 
+                  borderRadius: '999px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ 
+                    height: '6px', 
+                    background: '#F59E0B', 
+                    width: `${Math.min(orchestratorStatus?.progress || 0, 100)}%`, 
+                    borderRadius: '999px',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </div>
+              <div style={{ 
+                fontSize: '0.9rem', 
+                fontWeight: '600',
+                color: '#92400E'
+              }}>
+                {Math.min(orchestratorStatus?.progress || 0, 100)}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main style={{ padding: '2rem 0', minHeight: '80vh' }}>
         <div className="container">
           {/* Header with back button */}
@@ -268,17 +296,7 @@ export default function DealDetail() {
             }}>
               <div>
                 <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>
-                  {shouldShowProgress ? (
-                    <div>
-                      <div style={{ marginBottom: '1rem' }}>Company Information</div>
-                      <ProgressWidget 
-                        status={orchestratorStatus} 
-                        fallbackText="Processing company information..." 
-                      />
-                    </div>
-                  ) : (
-                    deal.companyName
-                  )}
+                  {deal.companyName}
                 </h1>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}></div>
               </div>
@@ -346,28 +364,11 @@ export default function DealDetail() {
                     ))}
                   </div>
                 ) : (
-                  <div>
-                    {competitorStatus ? (
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <div style={{
-                            width: '10px', height: '10px', borderRadius: '50%',
-                            background: (competitorStatus.progress || 0) < 100 ? '#F59E0B' : '#10B981'
-                          }} />
-                          <span style={{ color: 'var(--text-secondary)' }}>{competitorStatus.label || 'Processing...'}</span>
-                        </div>
-                        <div style={{ height: '8px', background: 'var(--border-light)', borderRadius: '999px', marginTop: '0.5rem' }}>
-                          <div style={{ height: '8px', background: 'var(--credo-orange)', width: `${Math.min(competitorStatus.progress || 0, 100)}%`, borderRadius: '999px' }} />
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ color: 'var(--text-secondary)' }}>No competitors yet. Processing will begin shortly.</span>
-                    )}
-                  </div>
+                  <span style={{ color: 'var(--text-secondary)' }}>No competitors found yet.</span>
                 )}
               </div>
               {/* Description */}
-              {shouldShowProgress ? (
+              {deal.description && (
                 <div style={{
                   background: 'white',
                   border: '1px solid var(--border-light)',
@@ -376,26 +377,10 @@ export default function DealDetail() {
                   marginBottom: '2rem'
                 }}>
                   <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Description</h2>
-                  <ProgressWidget 
-                    status={orchestratorStatus} 
-                    fallbackText="Extracting company description from documents..." 
-                  />
+                  <p style={{ lineHeight: '1.6', color: 'var(--text-secondary)' }}>
+                    {deal.description}
+                  </p>
                 </div>
-              ) : (
-                deal.description && !isProcessing(deal.description) && (
-                  <div style={{
-                    background: 'white',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '12px',
-                    padding: '2rem',
-                    marginBottom: '2rem'
-                  }}>
-                    <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Description</h2>
-                    <p style={{ lineHeight: '1.6', color: 'var(--text-secondary)' }}>
-                      {deal.description}
-                    </p>
-                  </div>
-                )
               )}
 
               {/* Uploaded Text */}
@@ -415,7 +400,7 @@ export default function DealDetail() {
               )}
 
               {/* Founding Team */}
-              {shouldShowProgress ? (
+              {deal.foundingTeam && Array.isArray(deal.foundingTeam) && deal.foundingTeam.length > 0 && (
                 <div style={{
                   background: 'white',
                   border: '1px solid var(--border-light)',
@@ -423,42 +408,26 @@ export default function DealDetail() {
                   padding: '2rem'
                 }}>
                   <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Founding Team</h2>
-                  <ProgressWidget 
-                    status={orchestratorStatus} 
-                    fallbackText="Extracting founding team information from documents..." 
-                  />
-                </div>
-              ) : (
-                deal.foundingTeam && Array.isArray(deal.foundingTeam) && deal.foundingTeam.length > 0 && 
-                !deal.foundingTeam.some(member => isProcessing(member.name)) && (
-                  <div style={{
-                    background: 'white',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: '12px',
-                    padding: '2rem'
-                  }}>
-                    <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Founding Team</h2>
-                    <div style={{ display: 'grid', gap: '1rem' }}>
-                      {deal.foundingTeam.map((member, index) => (
-                        <div key={index} style={{
-                          padding: '1rem',
-                          background: 'var(--border-light)',
-                          borderRadius: '8px'
-                        }}>
-                          <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
-                            {member.name || 'Unknown'}
-                          </div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                            {member.role || 'Unknown Role'}
-                          </div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                            {member.description || 'No description available'}
-                          </div>
+                  <div style={{ display: 'grid', gap: '1rem' }}>
+                    {deal.foundingTeam.map((member, index) => (
+                      <div key={index} style={{
+                        padding: '1rem',
+                        background: 'var(--border-light)',
+                        borderRadius: '8px'
+                      }}>
+                        <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                          {member.name || 'Unknown'}
                         </div>
-                      ))}
-                    </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                          {member.role || 'Unknown Role'}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                          {member.description || 'No description available'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )
+                </div>
               )}
             </div>
 
@@ -561,6 +530,13 @@ export default function DealDetail() {
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   )
 }

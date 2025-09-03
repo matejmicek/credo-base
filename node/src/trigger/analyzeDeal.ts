@@ -92,7 +92,7 @@ export const analyzeDealTask = task({
       metadata.set("status", { label: "Processing with AI model", progress: 60 });
 
       const response = await openai.responses.parse({
-        model: 'gpt-4o-2024-08-06',
+        model: 'gpt-5',
         input: [
           { role: 'system', content: systemPrompt },
           {

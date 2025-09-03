@@ -71,43 +71,15 @@ export const uploadOrchestratorTask = task({
 
     metadata.set("status", { label: "Processing uploaded files", progress: 40 });
 
-    // Step 2: Analyze deal documents and competitors in parallel
+    // Step 2: Update file records with OpenAI file IDs FIRST
     const openaiFileIds = openaiResults.map(result => result.openaiFileId).filter(Boolean);
-
-    const analysisResults = await batch.triggerByTaskAndWait([
-      {
-        task: analyzeDealTask,
-        payload: {
-          openaiFileIds,
-          freeText: payload.freeText,
-        },
-      },
-    ]);
-
-    const [dealAnalysisRun] = analysisResults.runs;
-
-    if (!dealAnalysisRun.ok) {
-      logger.error("Deal analysis failed", { error: dealAnalysisRun.error });
-      throw new Error(`Deal analysis failed: ${dealAnalysisRun.error}`);
-    }
-
-    const dealAnalysis = dealAnalysisRun.output;
-
-    metadata.set("status", { label: "Updating deal with extracted information", progress: 70 });
-
-    // Step 3: Update existing deal record with extracted data
-    const deal = await prisma.deal.update({
-      where: { id: payload.dealId },
-      data: {
-        companyName: dealAnalysis.deal_name,
-        description: dealAnalysis.deal_description,
-        foundingTeam: dealAnalysis.deal_founding_team,
-      },
+    
+    logger.log("Prepared OpenAI file IDs for analysis", {
+      totalResults: openaiResults.length,
+      validFileIds: openaiFileIds.length,
+      fileIds: openaiFileIds
     });
 
-    logger.log("Deal updated with extracted information", { dealId: deal.id });
-
-    // Step 4: Update file records with OpenAI file IDs
     if (payload.s3Files && payload.s3Files.length > 0 && openaiResults.length > 0) {
       for (let i = 0; i < payload.s3Files.length; i++) {
         const file = payload.s3Files[i];
@@ -132,19 +104,55 @@ export const uploadOrchestratorTask = task({
       });
     }
 
-    metadata.set("status", { label: "Starting competitor analysis", progress: 85 });
+    metadata.set("status", { label: "Starting document analysis", progress: 50 });
 
-    // Step 5: Trigger competitor analysis (async, don't wait)
-    try {
-      await analyzeCompetitorsTask.trigger(
-        { dealId: payload.dealId },
-        { tags: [`deal:${payload.dealId}`] }
-      );
-      logger.log("Competitor analysis triggered", { dealId: payload.dealId });
-    } catch (error) {
-      logger.error("Failed to trigger competitor analysis", { error: String(error) });
-      // Don't fail the entire process if competitor analysis fails to trigger
+    // Step 3: Analyze deal documents and competitors in parallel
+    const analysisResults = await batch.triggerByTaskAndWait([
+      {
+        task: analyzeDealTask,
+        payload: {
+          openaiFileIds,
+          freeText: payload.freeText,
+        },
+      },
+      {
+        task: analyzeCompetitorsTask,
+        payload: {
+          dealId: payload.dealId,
+        },
+      },
+    ]);
+
+    const [dealAnalysisRun, competitorAnalysisRun] = analysisResults.runs;
+
+    if (!dealAnalysisRun.ok) {
+      logger.error("Deal analysis failed", { error: dealAnalysisRun.error });
+      throw new Error(`Deal analysis failed: ${dealAnalysisRun.error}`);
     }
+
+    if (!competitorAnalysisRun.ok) {
+      logger.error("Competitor analysis failed", { error: competitorAnalysisRun.error });
+      // Don't fail the entire process, just log the error
+      logger.log("Continuing without competitor analysis");
+    }
+
+    const dealAnalysis = dealAnalysisRun.output;
+    const competitorAnalysis = competitorAnalysisRun.ok ? competitorAnalysisRun.output : null;
+
+    metadata.set("status", { label: "Updating deal with extracted information", progress: 80 });
+
+    // Step 4: Update existing deal record with extracted data
+    const deal = await prisma.deal.update({
+      where: { id: payload.dealId },
+      data: {
+        companyName: dealAnalysis.deal_name,
+        description: dealAnalysis.deal_description,
+        foundingTeam: dealAnalysis.deal_founding_team,
+        competitors: competitorAnalysis || { competitors: [] },
+      },
+    });
+
+    logger.log("Deal updated with extracted information", { dealId: deal.id });
 
     metadata.set("status", { label: "Upload orchestration completed", progress: 100 });
 

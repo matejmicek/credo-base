@@ -119,6 +119,18 @@ export default async function handler(req, res) {
             description: 'Extracting team information from uploaded files...',
           },
         ],
+        competitors: {
+          competitors: [
+            {
+              name: 'Analyzing competitors...',
+              description: 'Extracting competitor information from documents...',
+              website: null,
+              market: 'Processing...',
+              strengths: ['Analyzing...'],
+              weaknesses: ['Analyzing...'],
+            },
+          ],
+        },
         assignedToId: session.user.id,
         deleted: false,
       },
