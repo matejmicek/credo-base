@@ -1,12 +1,16 @@
-import { logger, task, metadata, batchTrigger } from "@trigger.dev/sdk/v3";
+import { logger, task, metadata } from "@trigger.dev/sdk/v3";
 import OpenAI from "openai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { prisma } from "../lib/prisma";
 import { evaluateCompetitorTask } from "./evaluateCompetitor";
+import { sanitizeCitations, CompetitorCategory } from "./utils/sanitize";
+import fs from "fs/promises";
+import path from "path";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60*60*1000 // 1 hour
 });
 
 // Structured output Zod schema for competitor analysis
@@ -34,20 +38,24 @@ export const CompetitorsSchema = z.object({
 
 type AnalyzeCompetitorsPayload = {
   dealId: string;
+  category: CompetitorCategory; // Target investor category to search for
 };
 
 export const analyzeCompetitorsTask = task({
   id: "analyze-competitors",
   // Keep generous but bounded runtime
-  maxDuration: 600,
+  maxDuration: 10000,
   run: async (payload: AnalyzeCompetitorsPayload) => {
     if (!payload?.dealId) {
       throw new Error("dealId is required");
     }
+    if (!payload?.category) {
+      throw new Error("category is required");
+    }
 
     logger.log("Fetching deal and files", { dealId: payload.dealId });
 
-    metadata.set("status", { label: "Fetching deal and files", progress: 10 });
+    metadata.set("status", { label: `Fetching deal and files (${payload.category})`, progress: 10 });
 
     const deal = await prisma.deal.findUnique({
       where: { id: payload.dealId },
@@ -91,11 +99,42 @@ export const analyzeCompetitorsTask = task({
       return empty;
     }
 
-    const systemPrompt =
-      "You are a world-class venture capital analyst. Your mission is to conduct deep-dive research on the competitive landscape for the company described in the attached documents. Use file_search to read the docs and web_search to uncover direct, indirect, and emerging competitors. Synthesize both sources. Be thorough and meticulous in your research. For each competitor, provide a concise commentary on their relevance. Return only fields defined by analyze_deal.";
+    // Load category definitions from prompts/competition.txt so our
+    // instructions stay in sync with the evaluation rubric
+    let competitionPromptTemplate: string | null = null;
+    try {
+      const raw = await fs.readFile(
+        path.join(process.cwd(), "prompts", "competition.txt"),
+        "utf-8"
+      );
+      competitionPromptTemplate = raw;
+    } catch {}
 
-    const userPrompt =
-      "Analyze the attached investor materials. Use web_search to identify direct and adjacent competitors (incl. new or less visible players). For each competitor, return their name, a concise description, their website, and a commentary on why they are a relevant competitor. Prefer EU/CEE if relevant.";
+    const categoryFocus = payload.category;
+
+    const systemPrompt = `You are a world-class venture capital analyst. Your mission is to conduct deep-dive competitive research for the company described in the attached documents.
+
+Use file_search to read the company's materials and web_search to find relevant competitors. Be exhaustive but precise.
+
+STRICT INSTRUCTIONS:
+- Focus ONLY on competitors that match this investor category: "${categoryFocus}".
+- Use the following category definitions (excerpted from our rubric) to determine eligibility. If unsure, prefer precision over recall and exclude ambiguous companies.
+---
+${competitionPromptTemplate ?? "early-stage: Early-stage startup (<$10M raised)\nwell-funded: Well-funded recent startup (> $10M, ≤6 years old)\nincumbent: Incumbent (large enterprise, e.g., Microsoft, IBM, big AI labs)."}
+---
+- Exclude companies that do not clearly fit "${categoryFocus}".
+- Prefer US/EU/CEE competitors when quality is comparable.
+- Do not include citation markers (e.g., cite, turnXsearchY, turnXnewsY, [1]); return clean prose only.
+
+OUTPUT: Return only the fields described by the structured schema.`;
+
+    const userPrompt = `Analyze the attached investor materials and identify competitors that CLEARLY fit the "${categoryFocus}" category, according to the provided definitions. For each qualified competitor, return:
+- name
+- a concise description of what they do
+- website (if available)
+- relevance: why they are a meaningful competitor to the company in the documents
+
+Favor up-to-date sources and practical operator relevance over superficial overlaps.`;
 
       const attachments = (openaiFileIds || [])
       .filter(Boolean)
@@ -107,21 +146,20 @@ export const analyzeCompetitorsTask = task({
 
     logger.log("Requesting OpenAI structured competitors analysis", {
       numFiles: openaiFileIds.length,
+      category: payload.category,
     });
-    metadata.set("status", { label: "Analyzing documents with AI", progress: 40 });
+    metadata.set("status", { label: `Analyzing competitors (${payload.category})`, progress: 40 });
 
     try {
       const response = await openai.responses.parse({
         // === GPT-5 Thinking ===
         model: "gpt-5",
-        reasoning: { effort: "low" }, // “hard thinking”
+        reasoning: { effort: "medium" }, // “hard thinking”
 
         // Hosted tools: web + file search
         tools: [
-          { type: "web_search" }
+          { type: "web_search_preview" }
         ],
-
-
         // Your prompts + (optional) input_file previews
         input: [
           { role: "system", content: systemPrompt },
@@ -148,6 +186,7 @@ export const analyzeCompetitorsTask = task({
       console.log("Response", response);
 
       const parsed = response.output_parsed;
+      console.log("Response parsed", parsed);
       const competitorsResult = parsed ?? { competitors: [] };
 
       logger.log("Saving competitors back to DB", {
@@ -155,40 +194,28 @@ export const analyzeCompetitorsTask = task({
       });
       metadata.set("status", { label: "Saving results", progress: 80 });
 
+      const createdCompetitorIds: string[] = [];
       if (competitorsResult.competitors && competitorsResult.competitors.length > 0) {
-        // We need to create competitors one by one to get their IDs
-        const createdCompetitors = [];
         for (const c of competitorsResult.competitors) {
-          const created = await prisma.competitor.create({
+          const competitor = await prisma.competitor.create({
             data: {
               dealId: payload.dealId,
               name: c.name,
-              description: c.description,
+              description: sanitizeCitations(c.description) ?? c.description,
               website: c.website,
-              relevance: c.relevance,
+              relevance: sanitizeCitations(c.relevance) ?? c.relevance,
             },
           });
-          createdCompetitors.push(created);
+          createdCompetitorIds.push(competitor.id);
         }
-        
-        // Now, trigger the evaluation task for each competitor
-        logger.log("Triggering competitor evaluation tasks", { count: createdCompetitors.length });
-        
-        await batchTrigger({
-          items: createdCompetitors.map(c => ({
-            payload: {
-              competitorId: c.id
-            }
-          })),
-          task: evaluateCompetitorTask
-        });
       }
 
       metadata.set("status", { label: "Completed", progress: 100 });
-      return competitorsResult;
+      return { ...competitorsResult, competitorIds: createdCompetitorIds } as any;
     } catch (error: any) {
       logger.error("OpenAI competitor analysis failed", { error: String(error) });
       metadata.set("status", { label: "AI analysis failed", progress: 100, error: String(error) });
+      console.log("Error", error);
 
       const fallback = {
         competitors: [],

@@ -3,7 +3,6 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/router'
 import Header from "../../components/Header"
 import { useRealtimeRun } from '@trigger.dev/react-hooks'
-import { ChevronDown, ChevronUp } from 'lucide-react'
 
 export default function DealDetail() {
   const { data: session, status } = useSession()
@@ -13,11 +12,6 @@ export default function DealDetail() {
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [publicToken, setPublicToken] = useState(null)
-  const [expandedCompetitor, setExpandedCompetitor] = useState(null);
-  
-  const toggleCompetitor = (id) => {
-    setExpandedCompetitor(expandedCompetitor === id ? null : id)
-  }
 
   useEffect(() => {
     const fetchDeal = async () => {
@@ -25,14 +19,6 @@ export default function DealDetail() {
         const response = await fetch(`/api/deals/${id}`)
         if (response.ok) {
           const dealData = await response.json()
-          // Sort competitors by score (descending)
-          if (dealData.competitors) {
-            dealData.competitors.sort((a, b) => {
-              const scoreA = a.score === "UNCERTAIN" ? -1 : parseInt(a.score, 10);
-              const scoreB = b.score === "UNCERTAIN" ? -1 : parseInt(b.score, 10);
-              return scoreB - scoreA;
-            });
-          }
           setDeal(dealData)
         } else {
           router.push('/deep-research')
@@ -119,41 +105,6 @@ export default function DealDetail() {
     )
   }
 
-  const handleDelete = async () => {
-    try {
-      const response = await fetch(`/api/deals?id=${id}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        router.push('/deep-research')
-      } else {
-        console.error('Failed to delete deal')
-      }
-    } catch (error) {
-      console.error('Error deleting deal:', error)
-    }
-  }
-
-  const formatAmount = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount)
-  }
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
-  }
-
-
-
   if (loading) {
     return (
       <div>
@@ -196,6 +147,51 @@ export default function DealDetail() {
         </main>
       </div>
     )
+  }
+
+  // Group competitors by category
+  const groupedCompetitors = deal.competitors?.reduce((acc, competitor) => {
+    const category = competitor.competitorCategory || 'Uncategorized';
+    if (!acc[category]) {
+      acc[category] = [];
+    }
+    acc[category].push(competitor);
+    return acc;
+  }, {});
+
+  const categoryOrder = ['incumbent', 'well-funded', 'early-stage', 'Uncategorized'];
+
+  const handleDelete = async () => {
+    try {
+      const response = await fetch(`/api/deals?id=${id}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        router.push('/deep-research')
+      } else {
+        console.error('Failed to delete deal')
+      }
+    } catch (error) {
+      console.error('Error deleting deal:', error)
+    }
+  }
+
+  const formatAmount = (amount) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount)
+  }
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
   }
 
   return (
@@ -254,7 +250,7 @@ export default function DealDetail() {
       )}
 
       <main style={{ padding: '2rem 0', minHeight: '80vh' }}>
-        <div className="container">
+        <div className="container" style={{ maxWidth: '1200px' }}>
           {/* Header with back button */}
           <div style={{
             display: 'flex',
@@ -324,7 +320,7 @@ export default function DealDetail() {
           </div>
 
           {/* Deal Content */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
             {/* Main Content */}
             <div>
               {/* Competitors */}
@@ -337,48 +333,59 @@ export default function DealDetail() {
               }}>
                 <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Competitors</h2>
                 {deal.competitors && deal.competitors.length > 0 ? (
-                  <div style={{ display: 'grid', gap: '0.75rem' }}>
-                    {deal.competitors.map((c) => (
-                      <div key={c.id} style={{
-                        padding: '1rem',
-                        background: 'var(--border-light)',
-                        borderRadius: '8px'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ fontWeight: 600 }}>{c.name}</div>
-                          {c.score && (
-                             <div style={{
-                              fontSize: '1.2rem',
-                              fontWeight: 'bold',
-                              color: c.score === "UNCERTAIN" ? 'var(--text-secondary)' : 'var(--credo-orange)',
-                            }}>
-                              {c.score}/10
-                            </div>
-                          )}
-                        </div>
-                        {c.shortJustification && <div style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>{c.shortJustification}</div>}
-                        
-                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {c.website && (
-                            <a href={c.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.9rem' }}>Website</a>
-                          )}
-                           {c.competitorCategory && <span style={{fontSize: '0.8rem', background: '#e0e0e0', padding: '2px 6px', borderRadius: '4px' }}>{c.competitorCategory}</span>}
-                        </div>
-                        
-                        {c.detailedJustification && (
-                          <div style={{ marginTop: '1rem' }}>
-                            <button onClick={() => toggleCompetitor(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--text-primary)'}}>
-                              {expandedCompetitor === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                              Detailed Justification
-                            </button>
-                            {expandedCompetitor === c.id && (
-                              <p style={{ margin: '0.5rem 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                {c.detailedJustification}
-                              </p>
-                            )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    {categoryOrder.map(category => (
+                      groupedCompetitors[category] && (
+                        <div key={category}>
+                          <h3 style={{ textTransform: 'capitalize', fontSize: '1.1rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-light)', paddingBottom: '0.5rem' }}>
+                            {category.replace('-', ' ')}
+                          </h3>
+                          <div style={{ display: 'grid', gap: '1rem' }}>
+                            {groupedCompetitors[category].map((c, idx) => (
+                              <div key={idx} style={{
+                                position: 'relative',
+                                padding: '1rem',
+                                background: '#F9FAFB',
+                                borderRadius: '8px',
+                                border: '1px solid var(--border-light)',
+                              }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '0.75rem',
+                                    right: '0.75rem',
+                                    background: 'rgba(0,0,0,0.05)',
+                                    color: 'var(--text-secondary)',
+                                    padding: '0.25rem 0.6rem',
+                                    borderRadius: '99px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: '600'
+                                }}>
+                                  Score: {c.score}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', paddingRight: '80px' }}>
+                                    {c.name}
+                                    {c.website && (
+                                      <a href={c.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.9rem', color: 'var(--credo-orange)', textDecoration: 'none' }}>
+                                        ↗
+                                      </a>
+                                    )}
+                                  </div>
+                                  {c.shortJustification && (
+                                    <div style={{ color: 'var(--text-secondary)', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+                                      {c.shortJustification
+                                        .replace(/[\uE000-\uF8FF]/g, '')
+                                        .replace(/\bturn\d+(?:search|news)\d+\b/gi, '')
+                                        .replace(/\b(?:cite|citation|citations)\b/gi, '')
+                                        .replace(/\[(?:\d+(?:-\d+)?)\]/g, '')}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )
                     ))}
                   </div>
                 ) : (

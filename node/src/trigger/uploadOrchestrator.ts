@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma";
 import { uploadToOpenAITask } from "./uploadToOpenAI";
 import { analyzeDealTask } from "./analyzeDeal";
 import { analyzeCompetitorsTask } from "./analyzeCompetitors";
+import { ALL_COMPETITOR_CATEGORIES } from "./utils/sanitize";
+import { evaluateCompetitorTask } from "./evaluateCompetitor";
 
 export type UploadOrchestratorPayload = {
   dealId: string; // Now we work with an existing deal
@@ -58,8 +60,8 @@ export const uploadOrchestratorTask = task({
       const [openaiRun] = uploadResults.runs;
 
       if (!openaiRun.ok) {
-        logger.error("OpenAI upload failed", { error: openaiRun.error });
-        throw new Error(`OpenAI upload failed: ${openaiRun.error}`);
+        logger.error("OpenAI upload failed", { error: (openaiRun as any).error });
+        throw new Error(`OpenAI upload failed: ${(openaiRun as any).error}`);
       }
 
       openaiResults = openaiRun.output;
@@ -107,6 +109,7 @@ export const uploadOrchestratorTask = task({
     metadata.set("status", { label: "Starting document analysis", progress: 50 });
 
     // Step 3: Analyze deal documents and competitors in parallel
+    // Trigger deal analysis and three category-specific competitor analyses concurrently
     const analysisResults = await batch.triggerByTaskAndWait([
       {
         task: analyzeDealTask,
@@ -115,33 +118,51 @@ export const uploadOrchestratorTask = task({
           freeText: payload.freeText,
         },
       },
-      {
+      ...ALL_COMPETITOR_CATEGORIES.map((category) => ({
         task: analyzeCompetitorsTask,
         payload: {
           dealId: payload.dealId,
+          category,
         },
-      },
+      })),
     ]);
 
-    const [dealAnalysisRun, competitorAnalysisRun] = analysisResults.runs;
+    const [dealAnalysisRun, ...competitorAnalysisRuns] = analysisResults.runs;
 
     if (!dealAnalysisRun.ok) {
-      logger.error("Deal analysis failed", { error: dealAnalysisRun.error });
-      throw new Error(`Deal analysis failed: ${dealAnalysisRun.error}`);
+      logger.error("Deal analysis failed", { error: (dealAnalysisRun as any).error });
+      throw new Error(`Deal analysis failed: ${(dealAnalysisRun as any).error}`);
     }
 
-    if (!competitorAnalysisRun.ok) {
-      logger.error("Competitor analysis failed", { error: competitorAnalysisRun.error });
-      // Don't fail the entire process, just log the error
-      logger.log("Continuing without competitor analysis");
+    const competitorIds: string[] = [];
+    for (const run of competitorAnalysisRuns) {
+      if (!run.ok) {
+        logger.error("Competitor analysis failed", { error: (run as any).error });
+        continue;
+      }
+      const out = run.output as any;
+      if (out?.competitorIds && Array.isArray(out.competitorIds)) {
+        competitorIds.push(...out.competitorIds);
+      }
     }
 
     const dealAnalysis = dealAnalysisRun.output;
-    const competitorAnalysis = competitorAnalysisRun.ok ? competitorAnalysisRun.output : null;
+    const competitorAnalysis = null; // Results are saved directly per-competitor; nothing to aggregate here
+
+    // Step 4: Evaluate all created competitors in parallel
+    if (competitorIds.length > 0) {
+      logger.log("Triggering competitor evaluations", { count: competitorIds.length });
+      await batch.triggerByTaskAndWait(
+        competitorIds.map((competitorId) => ({
+          task: evaluateCompetitorTask,
+          payload: { competitorId },
+        }))
+      );
+    }
 
     metadata.set("status", { label: "Updating deal with extracted information", progress: 80 });
 
-    // Step 4: Update existing deal record with extracted data
+    // Step 5: Update existing deal record with extracted data
     const deal = await prisma.deal.update({
       where: { id: payload.dealId },
       data: {
