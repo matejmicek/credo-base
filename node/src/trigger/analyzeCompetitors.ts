@@ -45,26 +45,45 @@ export const analyzeCompetitorsTask = task({
   // Keep generous but bounded runtime
   maxDuration: 10000,
   run: async (payload: AnalyzeCompetitorsPayload) => {
+    console.log("🚀 Starting competitor analysis task");
+    console.log("📋 Payload received:");
+    console.log("  🎯 Deal ID:", payload?.dealId);
+    console.log("  🏢 Competitor type:", payload?.competitorType);
+    
+    console.log("🔍 Validating payload...");
     if (!payload?.dealId) {
+      console.error("❌ Missing dealId in payload");
       throw new Error("dealId is required");
     }
     if (!payload?.competitorType) {
+      console.error("❌ Missing competitorType in payload");
       throw new Error("competitorType is required");
     }
+    console.log("✅ Payload validation successful");
 
+    console.log("📊 Starting data fetch for deal:", payload.dealId);
     logger.log("Fetching deal and files", { dealId: payload.dealId });
 
     metadata.set("status", { label: `Fetching deal and files (${payload.competitorType})`, progress: 10 });
 
+    console.log("🔍 Querying database for deal...");
     const deal = await prisma.deal.findUnique({
       where: { id: payload.dealId },
       include: { files: true },
     });
 
+    console.log("📥 Database query completed");
     if (!deal) {
+      console.error("❌ Deal not found in database:", payload.dealId);
       throw new Error(`Deal not found: ${payload.dealId}`);
     }
+    console.log("✅ Deal found successfully!");
 
+    console.log("📊 Deal details:");
+    console.log("  🎯 Deal ID:", deal.id);
+    console.log("  🏢 Company name:", deal.companyName || "Not set");
+    console.log("  📁 Files attached:", deal.files?.length || 0);
+    
     // Add detailed logging to debug the issue
     logger.log("Deal found with files", {
       dealId: deal.id,
@@ -77,9 +96,24 @@ export const analyzeCompetitorsTask = task({
       }))
     });
 
+    if (deal.files && deal.files.length > 0) {
+      console.log("📋 File details:");
+      deal.files.forEach((file, index) => {
+        console.log(`  ${index + 1}. ${file.originalName}`);
+        console.log(`     🔗 OpenAI ID: ${file.openaiFileId || 'Not set'}`);
+        console.log(`     ✅ Has OpenAI ID: ${!!file.openaiFileId}`);
+      });
+    }
+
+    console.log("🔄 Extracting OpenAI file IDs...");
     const openaiFileIds = (deal.files || [])
       .map((f) => f.openaiFileId)
       .filter((id): id is string => Boolean(id));
+
+    console.log("📊 OpenAI file ID extraction results:");
+    console.log("  📁 Total files:", deal.files?.length || 0);
+    console.log("  ✅ Valid OpenAI IDs:", openaiFileIds.length);
+    console.log("  🔗 File IDs:", openaiFileIds);
 
     logger.log("Extracted OpenAI file IDs", {
       totalFiles: deal.files?.length || 0,
@@ -88,20 +122,31 @@ export const analyzeCompetitorsTask = task({
     });
 
     if (openaiFileIds.length === 0) {
+      console.log("⚠️ No OpenAI file IDs found for this deal");
+      console.log("🔄 Saving empty competitor results and exiting early");
+      
       logger.log("No OpenAI file IDs found for this deal; saving empty competitors.");
       const empty = { competitors: [] };
       metadata.set("status", { label: "No documents found, nothing to analyze", progress: 100 });
+      
+      console.log("💾 Updating deal record with empty competitors...");
       await prisma.deal.update({
         where: { id: payload.dealId },
         data: { competitors: empty },
       });
+      console.log("✅ Empty competitor results saved");
       return empty;
     }
 
+    console.log("🔧 Setting up competitor analysis configuration...");
     // Get competitor type configuration
     const competitorConfig = COMPETITOR_TYPE_CONFIGS[payload.competitorType];
     const categoryFocus = competitorConfig.name;
     const categoryDescription = competitorConfig.description;
+    
+    console.log("📊 Competitor analysis configuration:");
+    console.log("  🎯 Category focus:", categoryFocus);
+    console.log("  📝 Category description:", categoryDescription);
 
     const systemPrompt = `You are a world-class venture capital analyst. Your mission is to conduct deep-dive competitive research for the company described in the attached documents.
 
@@ -125,6 +170,7 @@ OUTPUT: Return only the fields described by the structured schema.`;
 
 Favor up-to-date sources and practical operator relevance over superficial overlaps.`;
 
+      console.log("📎 Building file attachments for AI analysis...");
       const attachments = (openaiFileIds || [])
       .filter(Boolean)
       .map((fileId) => ({
@@ -132,6 +178,10 @@ Favor up-to-date sources and practical operator relevance over superficial overl
         file_id: fileId,
       }));
 
+    console.log("📊 AI request setup complete:");
+    console.log("  📁 Number of file attachments:", openaiFileIds.length);
+    console.log("  🏢 Competitor type:", payload.competitorType);
+    console.log("  🔗 File IDs for analysis:", openaiFileIds);
 
     logger.log("Requesting OpenAI structured competitors analysis", {
       numFiles: openaiFileIds.length,
@@ -139,6 +189,7 @@ Favor up-to-date sources and practical operator relevance over superficial overl
     });
     metadata.set("status", { label: `Analyzing competitors (${payload.competitorType})`, progress: 40 });
 
+    console.log("🚀 Sending competitor analysis request to OpenAI GPT-5...");
     try {
       const response = await openai.responses.parse({
         // === GPT-5 Thinking ===
@@ -172,12 +223,26 @@ Favor up-to-date sources and practical operator relevance over superficial overl
       });
 
 
-      console.log("Response", response);
+      console.log("📥 Received response from OpenAI");
+      console.log("🔍 Processing AI response...");
 
       const parsed = response.output_parsed;
-      console.log("Response parsed", parsed);
+      console.log("✅ AI response parsed successfully");
       const competitorsResult = parsed ?? { competitors: [] };
 
+      console.log("📊 Competitor analysis results:");
+      console.log("  🏢 Competitors found:", competitorsResult.competitors?.length ?? 0);
+      
+      if (competitorsResult.competitors && competitorsResult.competitors.length > 0) {
+        console.log("  📋 Competitor details:");
+        competitorsResult.competitors.forEach((competitor, index) => {
+          console.log(`    ${index + 1}. ${competitor.name}`);
+          console.log(`       🌐 Website: ${competitor.website || 'Not provided'}`);
+          console.log(`       📝 Description: ${competitor.description?.substring(0, 100) || 'Not provided'}...`);
+        });
+      }
+
+      console.log("💾 Saving competitor results to database...");
       logger.log("Saving competitors back to DB", {
         competitorsCount: competitorsResult.competitors?.length ?? 0,
       });
@@ -185,7 +250,11 @@ Favor up-to-date sources and practical operator relevance over superficial overl
 
       const createdCompetitorIds: string[] = [];
       if (competitorsResult.competitors && competitorsResult.competitors.length > 0) {
+        console.log(`🔄 Creating ${competitorsResult.competitors.length} competitor records...`);
+        let createdCount = 0;
+        
         for (const c of competitorsResult.competitors) {
+          console.log(`💾 Creating competitor record: ${c.name}`);
           const competitor = await prisma.competitor.create({
             data: {
               dealId: payload.dealId,
@@ -197,22 +266,37 @@ Favor up-to-date sources and practical operator relevance over superficial overl
             },
           });
           createdCompetitorIds.push(competitor.id);
+          createdCount++;
+          console.log(`✅ Created competitor: ${c.name} (ID: ${competitor.id})`);
         }
+        
+        console.log(`🎉 Successfully created ${createdCount} competitor records`);
+      } else {
+        console.log("ℹ️ No competitors to save to database");
       }
 
+      console.log("📊 Final competitor analysis summary:");
+      console.log("  🏢 Competitors analyzed:", competitorsResult.competitors?.length ?? 0);
+      console.log("  💾 Records created:", createdCompetitorIds.length);
+      console.log("  🆔 Created IDs:", createdCompetitorIds);
+
       metadata.set("status", { label: "Completed", progress: 100 });
+      console.log("🎉 Competitor analysis completed successfully!");
       return { ...competitorsResult, competitorIds: createdCompetitorIds } as any;
     } catch (error: any) {
+      console.error("❌ Fatal error in competitor analysis:", error);
+      console.error("🔍 Error type:", error instanceof Error ? error.constructor.name : typeof error);
+      console.error("📚 Error details:", error instanceof Error ? error.message : String(error));
+      console.error("🔬 Error stack:", error instanceof Error ? error.stack : "No stack trace");
+      
       logger.error("OpenAI competitor analysis failed", { error: String(error) });
       metadata.set("status", { label: "AI analysis failed", progress: 100, error: String(error) });
-      console.log("Error", error);
 
       const fallback = {
         competitors: [],
       } as z.infer<typeof CompetitorsSchema>;
 
-      // No need to update the deal here anymore as competitors are in a separate table
-      
+      console.log("🔄 Returning empty competitor results due to error");
       return fallback;
     }
   },

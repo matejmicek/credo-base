@@ -27,12 +27,21 @@ export const evaluateCompetitorTask = task({
   id: "evaluate-competitor",
   maxDuration: 300,
   run: async (payload: EvaluateCompetitorPayload, { ctx }) => {
+    console.log("🚀 Starting competitor evaluation task");
+    console.log("📋 Payload received:");
+    console.log("  🏢 Competitor ID:", payload?.competitorId);
+    
+    console.log("🔍 Validating payload...");
     if (!payload?.competitorId) {
+      console.error("❌ Missing competitorId in payload");
       throw new Error("competitorId is required");
     }
+    console.log("✅ Payload validation successful");
 
+    console.log("📊 Fetching competitor and deal data...");
     logger.log("Evaluating competitor", { competitorId: payload.competitorId });
 
+    console.log("🔍 Querying database for competitor...");
     const competitor = await prisma.competitor.findUnique({
       where: { id: payload.competitorId },
       include: {
@@ -44,20 +53,37 @@ export const evaluateCompetitorTask = task({
       },
     });
 
+    console.log("📥 Database query completed");
     if (!competitor || !competitor.deal) {
+      console.error("❌ Competitor or deal not found:", payload.competitorId);
       throw new Error(`Competitor or deal not found: ${payload.competitorId}`);
     }
+    
+    console.log("✅ Competitor and deal data retrieved successfully!");
+    console.log("📊 Retrieved data:");
+    console.log("  🏢 Competitor name:", competitor.name);
+    console.log("  🎯 Deal ID:", competitor.deal.id);
+    console.log("  🏢 Deal company:", competitor.deal.companyName || "Not set");
+    console.log("  📁 Deal files:", competitor.deal.files?.length || 0);
 
     const { deal } = competitor;
+    
+    console.log("🔄 Extracting OpenAI file IDs from deal files...");
     const openaiFileIds = (deal.files || [])
       .map((f) => f.openaiFileId)
       .filter((id): id is string => Boolean(id));
+
+    console.log("📊 OpenAI file extraction results:");
+    console.log("  📁 Total deal files:", deal.files?.length || 0);
+    console.log("  ✅ Valid OpenAI file IDs:", openaiFileIds.length);
+    console.log("  🔗 File IDs:", openaiFileIds);
 
     logger.log("Extracted OpenAI file IDs from deal", {
       dealId: deal.id,
       openaiFileIds,
     });
 
+    console.log("🔧 Preparing company comparison data...");
     const companyADescription = [deal.description, deal.uploadedText]
       .filter(Boolean)
       .join("\\n\\n");
@@ -72,12 +98,25 @@ export const evaluateCompetitorTask = task({
       description: competitor.description,
       website: competitor.website,
     };
+    
+    console.log("📊 Company comparison setup:");
+    console.log("  🏢 Company A (our company):");
+    console.log("    📛 Name:", companyA.name || "Not set");
+    console.log("    📝 Description length:", companyA.description?.length || 0, "characters");
+    console.log("  🏢 Company B (competitor):");
+    console.log("    📛 Name:", companyB.name);
+    console.log("    📝 Description length:", companyB.description?.length || 0, "characters");
+    console.log("    🌐 Website:", companyB.website || "Not provided");
 
+    console.log("📖 Loading competition evaluation prompt template...");
     const competitionPromptTemplate = await fs.readFile(
       path.join(process.cwd(), "prompts", "competition.txt"),
       "utf-8"
     );
+    console.log("✅ Prompt template loaded successfully");
+    console.log("📏 Template length:", competitionPromptTemplate.length, "characters");
     
+    console.log("📝 Building evaluation prompt...");
     const userPrompt = `
 You are comparing two companies.
 
@@ -95,12 +134,21 @@ Please evaluate the competition between them using the following rules:
 ${competitionPromptTemplate}
 ---
 `;
+    console.log("✅ Evaluation prompt built successfully");
+    console.log("📏 Final prompt length:", userPrompt.length, "characters");
+
+    console.log("📎 Building file attachments for AI evaluation...");
     const attachments = openaiFileIds.map((fileId) => ({
       type: "input_file" as const,
       file_id: fileId,
     }));
+    console.log("📊 Attachment setup complete:");
+    console.log("  📁 Number of attachments:", attachments.length);
+    console.log("  🔗 Attachment file IDs:", attachments.map(a => a.file_id));
 
+    console.log("🚀 Starting AI-powered competitor evaluation...");
     try {
+      console.log("📤 Sending evaluation request to OpenAI GPT-5...");
       const response = await openai.responses.parse({
         model: "gpt-5",
         reasoning: { effort: "low" },
@@ -128,9 +176,19 @@ ${competitionPromptTemplate}
         },
       });
 
+      console.log("📥 Received evaluation response from OpenAI");
+      console.log("🔍 Parsing evaluation results...");
       const parsed = response.output_parsed;
       
       if (parsed) {
+        console.log("✅ Evaluation results parsed successfully!");
+        console.log("📊 Evaluation results:");
+        console.log("  📈 Score:", parsed.score);
+        console.log("  🏢 Category:", parsed.competitor_category);
+        console.log("  📝 Short justification length:", parsed.short_justification?.length || 0, "characters");
+        console.log("  📖 Detailed justification length:", parsed.detailed_justification?.length || 0, "characters");
+        
+        console.log("💾 Saving evaluation results to database...");
         await prisma.competitor.update({
           where: { id: payload.competitorId },
           data: {
@@ -140,13 +198,22 @@ ${competitionPromptTemplate}
             detailedJustification: sanitizeCitations(parsed.detailed_justification) ?? parsed.detailed_justification,
           },
         });
+        console.log("✅ Evaluation results saved to database successfully!");
+        
         logger.log("Saved competitor evaluation to DB", { competitorId: payload.competitorId });
+        console.log("🎉 Competitor evaluation completed successfully!");
         return parsed;
       } else {
-         logger.error("Failed to parse OpenAI response", { competitorId: payload.competitorId });
+        console.error("❌ Failed to parse OpenAI evaluation response");
+        logger.error("Failed to parse OpenAI response", { competitorId: payload.competitorId });
       }
 
     } catch (error: any) {
+      console.error("❌ Fatal error in competitor evaluation:", error);
+      console.error("🔍 Error type:", error instanceof Error ? error.constructor.name : typeof error);
+      console.error("📚 Error details:", error instanceof Error ? error.message : String(error));
+      console.error("🔬 Error stack:", error instanceof Error ? error.stack : "No stack trace");
+      
       logger.error("OpenAI competitor evaluation failed", {
         error: String(error),
       });
