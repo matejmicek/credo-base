@@ -77,6 +77,7 @@ model Competitor {
   
   score                 String?
   competitorCategory    String?
+  competitorSource      String?  // New field for competitor source/type (yc-companies, open-source, etc.)
   shortJustification    String?
   detailedJustification String?
 

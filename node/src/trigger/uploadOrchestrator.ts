@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { uploadToOpenAITask } from "./uploadToOpenAI";
 import { analyzeDealTask } from "./analyzeDeal";
 import { analyzeCompetitorsTask } from "./analyzeCompetitors";
-import { ALL_COMPETITOR_CATEGORIES } from "./utils/sanitize";
+import { ALL_COMPETITOR_TYPES } from "./utils/sanitize";
 import { evaluateCompetitorTask } from "./evaluateCompetitor";
 
 export type UploadOrchestratorPayload = {
@@ -118,11 +118,11 @@ export const uploadOrchestratorTask = task({
           freeText: payload.freeText,
         },
       },
-      ...ALL_COMPETITOR_CATEGORIES.map((category) => ({
+      ...ALL_COMPETITOR_TYPES.map((competitorType) => ({
         task: analyzeCompetitorsTask,
         payload: {
           dealId: payload.dealId,
-          category,
+          competitorType,
         },
       })),
     ]);

@@ -21,16 +21,7 @@ export function sanitizeCitations(input?: string | null): string | null {
   return text.length > 0 ? text : null;
 }
 
-export enum CompetitorCategory {
-  EARLY_STAGE = "early-stage",
-  WELL_FUNDED = "well-funded",
-  INCUMBENT = "incumbent",
-}
-
-export const ALL_COMPETITOR_CATEGORIES: CompetitorCategory[] = [
-  CompetitorCategory.EARLY_STAGE,
-  CompetitorCategory.WELL_FUNDED,
-  CompetitorCategory.INCUMBENT,
-];
+// Re-export the new competitor types
+export { CompetitorType, ALL_COMPETITOR_TYPES, COMPETITOR_TYPE_CONFIGS } from "../config/competitorTypes";
 
 

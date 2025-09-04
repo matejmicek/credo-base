@@ -4,9 +4,8 @@ import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { prisma } from "../lib/prisma";
 import { evaluateCompetitorTask } from "./evaluateCompetitor";
-import { sanitizeCitations, CompetitorCategory } from "./utils/sanitize";
-import fs from "fs/promises";
-import path from "path";
+import { sanitizeCitations, CompetitorType, COMPETITOR_TYPE_CONFIGS } from "./utils/sanitize";
+
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -38,7 +37,7 @@ export const CompetitorsSchema = z.object({
 
 type AnalyzeCompetitorsPayload = {
   dealId: string;
-  category: CompetitorCategory; // Target investor category to search for
+  competitorType: CompetitorType; // Target competitor type to search for
 };
 
 export const analyzeCompetitorsTask = task({
@@ -49,13 +48,13 @@ export const analyzeCompetitorsTask = task({
     if (!payload?.dealId) {
       throw new Error("dealId is required");
     }
-    if (!payload?.category) {
-      throw new Error("category is required");
+    if (!payload?.competitorType) {
+      throw new Error("competitorType is required");
     }
 
     logger.log("Fetching deal and files", { dealId: payload.dealId });
 
-    metadata.set("status", { label: `Fetching deal and files (${payload.category})`, progress: 10 });
+    metadata.set("status", { label: `Fetching deal and files (${payload.competitorType})`, progress: 10 });
 
     const deal = await prisma.deal.findUnique({
       where: { id: payload.dealId },
@@ -99,36 +98,26 @@ export const analyzeCompetitorsTask = task({
       return empty;
     }
 
-    // Load category definitions from prompts/competition.txt so our
-    // instructions stay in sync with the evaluation rubric
-    let competitionPromptTemplate: string | null = null;
-    try {
-      const raw = await fs.readFile(
-        path.join(process.cwd(), "prompts", "competition.txt"),
-        "utf-8"
-      );
-      competitionPromptTemplate = raw;
-    } catch {}
-
-    const categoryFocus = payload.category;
+    // Get competitor type configuration
+    const competitorConfig = COMPETITOR_TYPE_CONFIGS[payload.competitorType];
+    const categoryFocus = competitorConfig.name;
+    const categoryDescription = competitorConfig.description;
 
     const systemPrompt = `You are a world-class venture capital analyst. Your mission is to conduct deep-dive competitive research for the company described in the attached documents.
 
 Use file_search to read the company's materials and web_search to find relevant competitors. Be exhaustive but precise.
 
 STRICT INSTRUCTIONS:
-- Focus ONLY on competitors that match this investor category: "${categoryFocus}".
-- Use the following category definitions (excerpted from our rubric) to determine eligibility. If unsure, prefer precision over recall and exclude ambiguous companies.
----
-${competitionPromptTemplate ?? "early-stage: Early-stage startup (<$10M raised)\nwell-funded: Well-funded recent startup (> $10M, ≤6 years old)\nincumbent: Incumbent (large enterprise, e.g., Microsoft, IBM, big AI labs)."}
----
-- Exclude companies that do not clearly fit "${categoryFocus}".
+- Focus ONLY on competitors that match this category: "${categoryFocus}".
+- Category definition: ${categoryDescription}
+- If unsure whether a company fits this category, prefer precision over recall and exclude ambiguous companies.
+- Exclude companies that do not clearly fit the "${categoryFocus}" category definition.
 - Prefer US/EU/CEE competitors when quality is comparable.
 - Do not include citation markers (e.g., cite, turnXsearchY, turnXnewsY, [1]); return clean prose only.
 
 OUTPUT: Return only the fields described by the structured schema.`;
 
-    const userPrompt = `Analyze the attached investor materials and identify competitors that CLEARLY fit the "${categoryFocus}" category, according to the provided definitions. For each qualified competitor, return:
+    const userPrompt = `Analyze the attached investor materials and identify competitors that CLEARLY fit the "${categoryFocus}" category (${categoryDescription}). For each qualified competitor, return:
 - name
 - a concise description of what they do
 - website (if available)
@@ -146,9 +135,9 @@ Favor up-to-date sources and practical operator relevance over superficial overl
 
     logger.log("Requesting OpenAI structured competitors analysis", {
       numFiles: openaiFileIds.length,
-      category: payload.category,
+      competitorType: payload.competitorType,
     });
-    metadata.set("status", { label: `Analyzing competitors (${payload.category})`, progress: 40 });
+    metadata.set("status", { label: `Analyzing competitors (${payload.competitorType})`, progress: 40 });
 
     try {
       const response = await openai.responses.parse({
@@ -204,6 +193,7 @@ Favor up-to-date sources and practical operator relevance over superficial overl
               description: sanitizeCitations(c.description) ?? c.description,
               website: c.website,
               relevance: sanitizeCitations(c.relevance) ?? c.relevance,
+              competitorSource: payload.competitorType,
             },
           });
           createdCompetitorIds.push(competitor.id);
