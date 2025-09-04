@@ -89,3 +89,42 @@ model Competitor {
 
   @@map("competitors")
 }
+
+// People scraped from various sources (can have duplicate leadspickerIds in different contexts)
+model Person {
+  id                    String   @id @default(cuid())
+  leadspickerId         Int      // Not unique - same person can be scraped in multiple contexts
+  
+  // Basic contact information
+  fullName              String?
+  firstName             String?
+  lastName              String?
+  email                 String?
+  position              String?
+  
+  // LinkedIn information
+  linkedinUrl           String?
+  followersCount        Int?
+  
+  // Company information
+  companyName           String?
+  companyLinkedinUrl    String?
+  companyWebsiteUrl     String?
+  companyEmployeeCount  Int?
+  companyDescription    String?  // linkedin_company_description
+  websiteTextSummary    String?  // website_text_summary
+  
+  // Professional background
+  pastExperiences       String?  // Concatenated past work experiences
+  educationSummary      String?
+  
+  // Location
+  country               String?
+  
+  // Metadata
+  sourceRobot           String?  // How this person was found/added
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  @@map("people")
+}
