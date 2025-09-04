@@ -63,96 +63,42 @@ export default async function handler(req, res) {
     
     console.log('\n=== END WEBHOOK LOG ===\n');
 
-    // Extract person ID and fetch full details from Leadspicker API
-    let personDetails = null;
-    let apiError = null;
+    // Trigger the person orchestrator task if we have a person ID
+    let triggerResult = null;
+    let triggerError = null;
 
     if (req.body && req.body.person && req.body.person.id) {
       const personId = req.body.person.id;
-      console.log('\n=== FETCHING PERSON DETAILS ===');
+      console.log('\n=== TRIGGERING PERSON ORCHESTRATOR ===');
       console.log('Person ID:', personId);
       
       try {
-        const leadspickerUrl = `https://app.leadspicker.com/app/sb/api/persons/${personId}`;
-        const apiKey = "60c3f0b1df808181b02fe81dc494014d75282c583cafc145d4d233eea6566b20";
+        // Import the trigger client dynamically
+        const { tasks } = await import("@trigger.dev/sdk/v3");
         
-        console.log('API URL:', leadspickerUrl);
-        
-        const response = await fetch(leadspickerUrl, {
-          method: 'GET',
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-            "X-API-Key": apiKey
-          }
+        // Trigger the orchestrator task
+        const result = await tasks.trigger("add-person-orchestrator", {
+          personId: personId
         });
         
-        console.log('API Response Status:', response.status);
-        console.log('API Response Headers:', Object.fromEntries(response.headers.entries()));
-        
-        if (response.ok) {
-          personDetails = await response.json();
-          
-          console.log('\n████████████████████████████████████████████████████████████████████████████████');
-          console.log('██                                                                              ██');
-          console.log('██                        FULL PERSON DETAILS                                  ██');
-          console.log('██                                                                              ██');
-          console.log('████████████████████████████████████████████████████████████████████████████████');
-          console.log('\n--- PERSON DETAILS RESPONSE ---');
-          console.log('Response type:', typeof personDetails);
-          console.log('Full response:', JSON.stringify(personDetails, null, 2));
-          
-          if (personDetails && typeof personDetails === 'object') {
-            console.log('\n--- PERSON DETAILS BREAKDOWN ---');
-            const detailKeys = Object.keys(personDetails);
-            console.log('Number of properties:', detailKeys.length);
-            console.log('Property names:', detailKeys);
-            
-            detailKeys.forEach(key => {
-              const value = personDetails[key];
-              console.log(`\n🔹 ${key.toUpperCase()}:`);
-              console.log('   Type:', typeof value);
-              
-              if (typeof value === 'object' && value !== null) {
-                if (Array.isArray(value)) {
-                  console.log('   Array length:', value.length);
-                  console.log('   Array items:', JSON.stringify(value, null, 4));
-                } else {
-                  console.log('   Object keys:', Object.keys(value));
-                  console.log('   Object:', JSON.stringify(value, null, 4));
-                }
-              } else {
-                console.log('   Value:', value);
-              }
-            });
-          }
-          
-          console.log('\n████████████████████████████████████████████████████████████████████████████████');
-          console.log('██                                                                              ██');
-          console.log('██                      END PERSON DETAILS                                     ██');
-          console.log('██                                                                              ██');
-          console.log('████████████████████████████████████████████████████████████████████████████████\n');
-          
-        } else {
-          const errorText = await response.text();
-          apiError = `API request failed with status ${response.status}: ${errorText}`;
-          console.log('API Error:', apiError);
-        }
+        triggerResult = result;
+        console.log('✅ Person orchestrator triggered successfully');
+        console.log('Trigger result:', JSON.stringify(result, null, 2));
         
       } catch (error) {
-        apiError = `Failed to fetch person details: ${error.message}`;
-        console.error('Fetch Error:', error);
+        triggerError = `Failed to trigger person orchestrator: ${error.message}`;
+        console.error('❌ Trigger Error:', triggerError);
         console.error('Error stack:', error.stack);
       }
     } else {
       console.log('\n--- NO PERSON ID FOUND ---');
-      console.log('Cannot fetch person details - no person.id in payload');
+      console.log('Cannot trigger person orchestrator - no person.id in payload');
     }
 
     // Return success response
     res.status(200).json({
       success: true,
-      message: 'Webhook received successfully',
+      message: 'Webhook received and person orchestrator triggered',
       timestamp: new Date().toISOString(),
       receivedData: {
         bodyType: typeof req.body,
@@ -161,10 +107,10 @@ export default async function handler(req, res) {
         queryParams: Object.keys(req.query).length > 0 ? req.query : null,
         contentType: req.headers['content-type'],
         personId: req.body?.person?.id || null,
-        personDetailsFetched: !!personDetails,
-        apiError: apiError
+        orchestratorTriggered: !!triggerResult,
+        triggerError: triggerError
       },
-      personDetails: personDetails
+      triggerResult: triggerResult
     });
 
   } catch (error) {

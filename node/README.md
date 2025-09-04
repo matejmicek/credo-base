@@ -1,9 +1,34 @@
-# Next.js Hello World
+# Credo Ventures Application
 
+This Next.js application handles deal analysis and person management with Trigger.dev orchestration.
 
-This example shows the most basic idea behind Next. We have 2 pages: `src/pages/index.js` and `src/pages/about.js`. The former responds to `/` requests and the latter to `/about`. Using `next/link` you can add hyperlinks between them with universal routing capabilities.
+## Environment Variables
 
-The app in this repo is deployed at https://next-js.onrender.com.
+Create a `.env.local` file in the root directory with the following variables:
+
+```bash
+# Leadspicker API Configuration
+LEADSPICKER_API_KEY=your_leadspicker_api_key_here
+
+# Next.js Configuration
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_nextauth_secret_here
+
+# Database Configuration
+DATABASE_URL=your_database_url_here
+
+# Trigger.dev Configuration
+TRIGGER_SECRET_KEY=your_trigger_secret_key_here
+```
+
+## API Endpoints
+
+- `POST /api/webhook/register-new-person` - Webhook for receiving person registration events
+
+## Trigger.dev Tasks
+
+- `add-person-orchestrator` - Main orchestrator for person processing
+- `fetch-person-details` - Fetches detailed person information from Leadspicker API
 
 ## Deploy as Node Web Service
 
